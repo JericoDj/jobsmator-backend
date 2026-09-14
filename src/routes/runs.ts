@@ -1,16 +1,19 @@
 import { Hono } from "hono";
 import { and, desc, eq, gt, inArray, sql as dsql } from "drizzle-orm";
+import { validator } from "hono-openapi";
+import { z } from "zod";
 import { db } from "@/db/client";
 import { jobs, resumes, runs, users } from "@/db/schema";
-import { CreateRunBody, type Run } from "@/contracts";
+import { CreateRunBody, Run } from "@/contracts";
 import { ApiError } from "@/lib/errors";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { IdParam, route } from "@/lib/openapi";
 import { runEngine } from "@/services/engine";
 import { signedResumeUrl } from "@/services/storage";
 import type { AppEnv, AppUser } from "@/middleware";
 
-const toRun = (r: typeof runs.$inferSelect): Run => ({
+export const toRun = (r: typeof runs.$inferSelect): Run => ({
   id: r.id,
   status: r.status,
   resumeId: r.resumeId,
@@ -76,47 +79,59 @@ async function executeRun(runId: string, user: AppUser, resume: typeof resumes.$
 }
 
 export const runRoutes = new Hono<AppEnv>()
-  .post("/", async (c) => {
-    const user = c.get("user");
-    const body = CreateRunBody.parse(await c.req.json());
+  .post(
+    "/",
+    route({
+      tag: "Runs",
+      summary: "Start a search run",
+      description:
+        "Returns immediately with `202` and a `runId`; the engine takes 30–90 s. Poll `GET /v1/runs/{id}` every ~3 s until `status` is `done` or `failed`, then load `GET /v1/runs/{id}/jobs`.",
+      ok: { status: 202, schema: z.object({ runId: z.string().uuid() }) },
+      errors: { 400: "Invalid body", 404: "Resume not found", 409: "A run is already in progress", 429: "Hourly run limit reached" },
+    }),
+    validator("json", CreateRunBody),
+    async (c) => {
+      const user = c.get("user");
+      const body = c.req.valid("json");
 
-    const [resume] = await db.select().from(resumes).where(and(eq(resumes.id, body.resumeId), eq(resumes.userId, user.id)));
-    if (!resume || resume.deletedAt) throw new ApiError("not_found", "Upload a resume first.");
+      const [resume] = await db.select().from(resumes).where(and(eq(resumes.id, body.resumeId), eq(resumes.userId, user.id)));
+      if (!resume || resume.deletedAt) throw new ApiError("not_found", "Upload a resume first.");
 
-    const [activeRow] = await db
-      .select({ active: dsql<number>`count(*)::int` })
-      .from(runs)
-      .where(and(eq(runs.userId, user.id), inArray(runs.status, ["queued", "running"])));
-    if ((activeRow?.active ?? 0) > 0) throw new ApiError("run_in_progress", "A search is already running — hang on.");
+      const [activeRow] = await db
+        .select({ active: dsql<number>`count(*)::int` })
+        .from(runs)
+        .where(and(eq(runs.userId, user.id), inArray(runs.status, ["queued", "running"])));
+      if ((activeRow?.active ?? 0) > 0) throw new ApiError("run_in_progress", "A search is already running — hang on.");
 
-    const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const [recentRow] = await db
-      .select({ recent: dsql<number>`count(*)::int` })
-      .from(runs)
-      .where(and(eq(runs.userId, user.id), gt(runs.startedAt, hourAgo)));
-    if ((recentRow?.recent ?? 0) >= env.RUNS_PER_HOUR) throw new ApiError("too_many_runs", `You've used ${env.RUNS_PER_HOUR} searches this hour. Try again later.`);
+      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const [recentRow] = await db
+        .select({ recent: dsql<number>`count(*)::int` })
+        .from(runs)
+        .where(and(eq(runs.userId, user.id), gt(runs.startedAt, hourAgo)));
+      if ((recentRow?.recent ?? 0) >= env.RUNS_PER_HOUR) {
+        throw new ApiError("too_many_runs", `You've used ${env.RUNS_PER_HOUR} searches this hour. Try again later.`);
+      }
 
-    const { resumeId, ...request } = body;
-    const [run] = await db.insert(runs).values({ userId: user.id, resumeId, request }).returning();
+      const { resumeId, ...request } = body;
+      const [run] = await db.insert(runs).values({ userId: user.id, resumeId, request }).returning();
 
-    void executeRun(run!.id, user, resume, body);
-    return c.json({ runId: run!.id }, 202);
-  })
-  .get("/", async (c) => {
+      void executeRun(run!.id, user, resume, body);
+      return c.json({ runId: run!.id }, 202);
+    },
+  )
+
+  .get("/", route({ tag: "Runs", summary: "Run history (latest 50)", ok: { schema: z.object({ items: z.array(Run) }) } }), async (c) => {
     const rows = await db.select().from(runs).where(eq(runs.userId, c.get("user").id)).orderBy(desc(runs.startedAt)).limit(50);
     return c.json({ items: rows.map(toRun) });
   })
-  .get("/:id", async (c) => {
-    const [row] = await db.select().from(runs).where(and(eq(runs.id, c.req.param("id")), eq(runs.userId, c.get("user").id)));
-    if (!row) throw new ApiError("not_found", "We can't find that search.");
-    return c.json(toRun(row));
-  });
 
-/** On boot: anything left queued/running from a previous process is dead. */
-export async function sweepStaleRuns() {
-  const cutoff = new Date(Date.now() - 3 * 60 * 1000);
-  await db
-    .update(runs)
-    .set({ status: "failed", errorCode: "engine_unavailable", finishedAt: new Date() })
-    .where(and(inArray(runs.status, ["queued", "running"]), dsql`${runs.startedAt} < ${cutoff}`));
-}
+  .get(
+    "/:id",
+    route({ tag: "Runs", summary: "Run status, stats and sheet info (poll target)", ok: { schema: Run }, errors: { 404: "Unknown run" } }),
+    validator("param", IdParam),
+    async (c) => {
+      const [row] = await db.select().from(runs).where(and(eq(runs.id, c.req.valid("param").id), eq(runs.userId, c.get("user").id)));
+      if (!row) throw new ApiError("not_found", "We can't find that search.");
+      return c.json(toRun(row));
+    },
+  );

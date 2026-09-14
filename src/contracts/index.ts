@@ -103,6 +103,7 @@ export const Job = z.object({
   redFlags: z.array(z.string()),
   saved: z.boolean(),
   hidden: z.boolean(),
+  applied: z.boolean(),
 });
 export type Job = z.infer<typeof Job>;
 
