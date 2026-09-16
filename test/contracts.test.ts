@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CreateRunBody, EngineResponse, JOB_SITES, UserDefaults } from "@/contracts";
+import { CreateRunBody, EngineResponse, JOB_SITES, Me, RegisterBody, UserDefaults } from "@/contracts";
 
 describe("contracts", () => {
   test("UserDefaults fills sensible defaults", () => {
@@ -23,5 +23,28 @@ describe("contracts", () => {
     expect(r.jobs[0]?.redFlags).toEqual([]);
     expect(r.jobs[0]?.company).toBe("");
     expect(r.stats).toBeUndefined();
+  });
+
+  test("RegisterBody validates email, password length, and displayName", () => {
+    expect(RegisterBody.safeParse({ email: "invalid-email", password: "password123", displayName: "Jerico" }).success).toBe(false);
+    expect(RegisterBody.safeParse({ email: "jerico@example.com", password: "short", displayName: "Jerico" }).success).toBe(false);
+    expect(RegisterBody.safeParse({ email: "jerico@example.com", password: "password123", displayName: "" }).success).toBe(false);
+    expect(RegisterBody.safeParse({ email: "jerico@example.com", password: "password123", displayName: "Jerico De Jesus" }).success).toBe(true);
+  });
+
+  test("Me parses with optional subscription and profile fields", () => {
+    const me = Me.parse({
+      id: "3f2b1a1e-0000-4000-8000-000000000000",
+      email: "jerico@example.com",
+      displayName: "Jerico De Jesus",
+      defaults: {},
+      sheetId: null,
+      subscription: { plan: "free", searchesUsed: 0, renewsAt: null },
+      profile: {},
+      automations: [],
+      settings: {},
+    });
+    expect(me.email).toBe("jerico@example.com");
+    expect(me.subscription?.plan).toBe("free");
   });
 });

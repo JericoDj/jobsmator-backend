@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { validator } from "hono-openapi";
+import { z } from "zod";
 import { db } from "@/db/client";
 import { resumes, users } from "@/db/schema";
 import { Me, UserDefaults } from "@/contracts";
@@ -10,12 +11,60 @@ import { deleteObject } from "@/services/storage";
 import { logger } from "@/lib/logger";
 import type { AppEnv } from "@/middleware";
 
-function toMe(u: typeof users.$inferSelect): Me {
-  return { id: u.id, email: u.email, displayName: u.displayName, defaults: UserDefaults.parse(u.defaults ?? {}), sheetId: u.sheetId };
+export function toMe(u: typeof users.$inferSelect): Me {
+  return {
+    id: u.id,
+    email: u.email,
+    displayName: u.displayName,
+    defaults: UserDefaults.parse(u.defaults ?? {}),
+    sheetId: u.sheetId,
+    subscription: {
+      plan: "free",
+      searchesUsed: 0,
+      renewsAt: null,
+    },
+    profile: {},
+    automations: [],
+    settings: {},
+  };
 }
 
 export const me = new Hono<AppEnv>()
   .get("/", route({ tag: "Me", summary: "Current user and saved defaults", ok: { schema: Me } }), (c) => c.json(toMe(c.get("user"))))
+
+  .post(
+    "/",
+    route({
+      tag: "Me",
+      summary: "Initialize or update user profile and defaults",
+      ok: { schema: Me },
+      errors: { 400: "Invalid field" },
+    }),
+    validator(
+      "json",
+      z
+        .object({
+          displayName: z.string().optional(),
+          defaults: UserDefaults.partial().optional(),
+        })
+        .optional(),
+    ),
+    async (c) => {
+      const body = c.req.valid("json") ?? {};
+      const user = c.get("user");
+      const current = UserDefaults.parse(user.defaults ?? {});
+      const nextDefaults = body.defaults ? { ...current, ...body.defaults } : current;
+      const [updated] = await db
+        .update(users)
+        .set({
+          defaults: nextDefaults,
+          ...(body.displayName ? { displayName: body.displayName } : {}),
+        })
+        .where(eq(users.id, user.id))
+        .returning();
+      return c.json(toMe(updated ?? user));
+    },
+  )
 
   .patch(
     "/",

@@ -8,6 +8,7 @@ import { logger } from "@/lib/logger";
 import { errorHandler } from "@/lib/errors";
 import { requestId, requireAuth, type AppEnv } from "@/middleware";
 import { health } from "@/routes/health";
+import { authRoutes } from "@/routes/auth";
 import { me } from "@/routes/me";
 import { resumeRoutes } from "@/routes/resumes";
 import { runRoutes } from "@/routes/runs";
@@ -23,6 +24,7 @@ app.onError(errorHandler);
 app.notFound((c) => c.json({ error: "not_found", message: "No such endpoint." }, 404));
 
 app.route("/health", health);
+app.route("/v1/auth", authRoutes);
 
 const v1 = new Hono<AppEnv>().use("*", requireAuth);
 v1.route("/me", me);
@@ -47,6 +49,7 @@ app.get(
       servers: [{ url: "http://localhost:3001", description: "Local" }],
       tags: [
         { name: "System", description: "Health and docs" },
+        { name: "Auth", description: "User registration and authentication" },
         { name: "Me", description: "Account and saved defaults" },
         { name: "Resumes", description: "Uploaded resume files" },
         { name: "Runs", description: "Asynchronous search runs against the n8n engine" },

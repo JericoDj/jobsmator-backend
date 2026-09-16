@@ -13,6 +13,7 @@ export type ApiErrorCode =
   | "engine_unavailable"
   | "too_many_runs"
   | "run_in_progress"
+  | "conflict"
   | "internal";
 
 const STATUS: Record<ApiErrorCode, number> = {
@@ -24,6 +25,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   engine_unavailable: 503,
   too_many_runs: 429,
   run_in_progress: 409,
+  conflict: 409,
   internal: 500,
 };
 

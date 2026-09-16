@@ -28,12 +28,39 @@ export const UserDefaults = z.object({
 });
 export type UserDefaults = z.infer<typeof UserDefaults>;
 
+export const SubscriptionPlan = z.enum(["free", "pro"]);
+export type SubscriptionPlan = z.infer<typeof SubscriptionPlan>;
+
+export const SubscriptionInfo = z.object({
+  plan: SubscriptionPlan.default("free"),
+  searchesUsed: z.number().int().min(0).default(0),
+  renewsAt: z.string().nullable().default(null),
+});
+export type SubscriptionInfo = z.infer<typeof SubscriptionInfo>;
+
+export const RegisterBody = z.object({
+  email: z.string().email(),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  displayName: z.string().min(1, "Name is required").max(100),
+});
+export type RegisterBody = z.infer<typeof RegisterBody>;
+
+export const RegisterResponse = z.object({
+  user: z.lazy(() => Me),
+  token: z.string(),
+});
+export type RegisterResponse = z.infer<typeof RegisterResponse>;
+
 export const Me = z.object({
   id: z.string().uuid(),
   email: z.string().email().nullable(),
   displayName: z.string().nullable(),
   defaults: UserDefaults,
   sheetId: z.string().nullable(),
+  subscription: SubscriptionInfo.optional(),
+  profile: z.record(z.string(), z.unknown()).optional(),
+  automations: z.array(z.record(z.string(), z.unknown())).optional(),
+  settings: z.record(z.string(), z.unknown()).optional(),
 });
 export type Me = z.infer<typeof Me>;
 

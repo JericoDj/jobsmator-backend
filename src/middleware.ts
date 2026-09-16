@@ -24,7 +24,13 @@ export const requireAuth = createMiddleware<AppEnv>(async (c, next) => {
   const [user] = await db
     .insert(users)
     .values({ firebaseUid: decoded.uid, email: decoded.email ?? null, displayName: decoded.name ?? null })
-    .onConflictDoUpdate({ target: users.firebaseUid, set: { email: decoded.email ?? null } })
+    .onConflictDoUpdate({
+      target: users.firebaseUid,
+      set: {
+        email: decoded.email ?? null,
+        ...(decoded.name ? { displayName: decoded.name } : {}),
+      },
+    })
     .returning();
   if (!user) throw new ApiError("internal", "Could not load your account.");
 
