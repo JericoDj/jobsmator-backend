@@ -21,9 +21,9 @@ export async function toMe(u: typeof users.$inferSelect): Promise<Me> {
     defaults: UserDefaults.parse(u.defaults ?? {}),
     sheetId: u.sheetId,
     subscription: {
-      plan: "free",
-      searchesUsed: 0,
-      renewsAt: null,
+      plan: u.plan as "free" | "pro",
+      searchesUsed: 0, // TODO: query this if needed later
+      renewsAt: u.renewsAt?.toISOString() ?? null,
     },
     profile: {},
     automations: autos.map(toAutomation),
@@ -91,7 +91,8 @@ export const me = new Hono<AppEnv>()
     async (c) => {
       const user = c.get("user");
       const files = await db.select({ storagePath: resumes.storagePath }).from(resumes).where(eq(resumes.userId, user.id));
-      await Promise.allSettled(files.map((f) => deleteObject(f.storagePath)));
+      const validPaths = files.map(f => f.storagePath).filter((p): p is string => p !== null);
+      await Promise.allSettled(validPaths.map((p) => deleteObject(p)));
       await db.delete(users).where(eq(users.id, user.id));
       await firebaseAuth.deleteUser(user.firebaseUid).catch((err) => logger.warn({ err, uid: user.firebaseUid }, "firebase deleteUser failed"));
       logger.info({ userId: user.id }, "account deleted");

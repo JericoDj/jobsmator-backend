@@ -14,6 +14,7 @@ import { resumeRoutes } from "@/routes/resumes";
 import { runRoutes } from "@/routes/runs";
 import { jobRoutes, runJobRoutes } from "@/routes/jobs";
 import { automationRoutes } from "@/routes/automations";
+import { billingRoutes } from "@/routes/billing";
 import { startMaintenance } from "@/jobs/maintenance";
 import { startAutomations } from "@/jobs/automations";
 
@@ -35,6 +36,7 @@ v1.route("/runs", runRoutes);
 v1.route("/runs", runJobRoutes);
 v1.route("/jobs", jobRoutes);
 v1.route("/automations", automationRoutes);
+v1.route("/billing", billingRoutes);
 app.route("/v1", v1);
 
 // ---- API docs: OpenAPI 3.1 at /openapi.json, Scalar UI at /docs

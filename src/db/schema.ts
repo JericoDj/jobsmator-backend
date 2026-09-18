@@ -7,6 +7,8 @@ export const users = pgTable("users", {
   displayName: text("display_name"),
   defaults: jsonb("defaults").notNull().default({}),
   sheetId: text("sheet_id"),
+  plan: text("plan", { enum: ["free", "pro"] }).notNull().default("free"),
+  renewsAt: timestamp("renews_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -112,3 +114,19 @@ export const automations = pgTable(
   },
   (t) => [index("automations_due_idx").on(t.enabled, t.nextRunAt)],
 );
+
+export const vouchers = pgTable("vouchers", {
+  code: text("code").primaryKey(),
+  durationDays: integer("duration_days"), // null means forever
+  maxUses: integer("max_uses"), // null means unlimited
+  useCount: integer("use_count").notNull().default(0),
+  expiresAt: timestamp("expires_at", { withTimezone: true }), // null means never expires
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const voucherRedemptions = pgTable("voucher_redemptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  code: text("code").notNull().references(() => vouchers.code, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("voucher_redemptions_user_code_uq").on(t.userId, t.code)]);
