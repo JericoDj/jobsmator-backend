@@ -107,14 +107,15 @@ export type Automation = z.infer<typeof Automation>;
 
 // ---------- resumes ----------
 export const CreateResumeBody = z.object({
-  storagePath: z.string().regex(/^resumes\/[^/]+\/[^/]+$/),
+  storagePath: z.string().regex(/^resumes\/[^/]+\/[^/]+$/).optional(),
+  url: z.string().url().optional(),
   filename: z.string().min(1).max(200),
-  sizeBytes: z.number().int().positive().max(10 * 1024 * 1024),
-});
+  sizeBytes: z.number().int().positive().max(10 * 1024 * 1024).optional(),
+}).refine(data => data.storagePath || data.url, { message: "Must provide either storagePath or url" });
 export const Resume = z.object({
   id: z.string().uuid(),
   filename: z.string(),
-  sizeBytes: z.number(),
+  sizeBytes: z.number().nullable(),
   createdAt: z.string(),
 });
 export type Resume = z.infer<typeof Resume>;

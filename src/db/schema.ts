@@ -15,9 +15,10 @@ export const resumes = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-    storagePath: text("storage_path").notNull(),
+    storagePath: text("storage_path"),
+    url: text("url"),
     filename: text("filename").notNull(),
-    sizeBytes: integer("size_bytes").notNull(),
+    sizeBytes: integer("size_bytes"),
     profile: jsonb("profile"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),

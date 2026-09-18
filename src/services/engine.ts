@@ -9,7 +9,8 @@ export async function runEngine(input: EngineRequest, signal?: AbortSignal): Pro
   const started = Date.now();
   let res: Response;
   try {
-    res = await fetch(`${env.N8N_BASE_URL}/webhook/jobsmator`, {
+    const base = env.N8N_BASE_URL.replace(/\/webhook\/jobsmator\/?$/, "").replace(/\/+$/, "");
+    res = await fetch(`${base}/webhook/jobsmator`, {
       method: "POST",
       headers: { "content-type": "application/json", "x-jobsmator-key": env.N8N_WEBHOOK_SECRET },
       body: JSON.stringify(body),

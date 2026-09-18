@@ -28,7 +28,9 @@ export const resumeRoutes = new Hono<AppEnv>()
     async (c) => {
       const body = c.req.valid("json");
       const user = c.get("user");
-      if (!body.storagePath.startsWith(`resumes/${user.firebaseUid}/`)) throw new ApiError("forbidden", "That file isn't in your folder.");
+      if (body.storagePath && !body.storagePath.startsWith(`resumes/${user.firebaseUid}/`)) {
+        throw new ApiError("forbidden", "That file isn't in your folder.");
+      }
       const [row] = await db.insert(resumes).values({ userId: user.id, ...body }).returning();
       return c.json({ resumeId: row!.id }, 201);
     },
@@ -52,7 +54,9 @@ export const resumeRoutes = new Hono<AppEnv>()
         .where(and(eq(resumes.id, c.req.valid("param").id), eq(resumes.userId, c.get("user").id), isNull(resumes.deletedAt)))
         .returning();
       if (!row) throw new ApiError("not_found", "That resume is already gone.");
-      await deleteObject(row.storagePath);
+      if (row.storagePath) {
+        await deleteObject(row.storagePath);
+      }
       return c.body(null, 204);
     },
   );
