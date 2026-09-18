@@ -9,9 +9,11 @@ import { route } from "@/lib/openapi";
 import { firebaseAuth } from "@/services/auth";
 import { deleteObject } from "@/services/storage";
 import { logger } from "@/lib/logger";
+import { listAutomations, toAutomation } from "@/routes/automations";
 import type { AppEnv } from "@/middleware";
 
-export function toMe(u: typeof users.$inferSelect): Me {
+export async function toMe(u: typeof users.$inferSelect): Promise<Me> {
+  const autos = await listAutomations(u.id);
   return {
     id: u.id,
     email: u.email,
@@ -24,13 +26,13 @@ export function toMe(u: typeof users.$inferSelect): Me {
       renewsAt: null,
     },
     profile: {},
-    automations: [],
+    automations: autos.map(toAutomation),
     settings: {},
   };
 }
 
 export const me = new Hono<AppEnv>()
-  .get("/", route({ tag: "Me", summary: "Current user and saved defaults", ok: { schema: Me } }), (c) => c.json(toMe(c.get("user"))))
+  .get("/", route({ tag: "Me", summary: "Current user and saved defaults", ok: { schema: Me } }), async (c) => c.json(await toMe(c.get("user"))))
 
   .post(
     "/",
@@ -62,7 +64,7 @@ export const me = new Hono<AppEnv>()
         })
         .where(eq(users.id, user.id))
         .returning();
-      return c.json(toMe(updated ?? user));
+      return c.json(await toMe(updated ?? user));
     },
   )
 
@@ -74,7 +76,7 @@ export const me = new Hono<AppEnv>()
       const patch = c.req.valid("json");
       const current = UserDefaults.parse(c.get("user").defaults ?? {});
       const [updated] = await db.update(users).set({ defaults: { ...current, ...patch } }).where(eq(users.id, c.get("user").id)).returning();
-      return c.json(toMe(updated!));
+      return c.json(await toMe(updated!));
     },
   )
 

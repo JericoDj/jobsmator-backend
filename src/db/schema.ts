@@ -79,8 +79,35 @@ export const jobActions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     jobId: uuid("job_id").notNull().references(() => jobs.id, { onDelete: "cascade" }),
-    action: text("action", { enum: ["saved", "hidden", "applied"] }).notNull(),
+    action: text("action", { enum: ["saved", "hidden", "applied", "responded", "interview"] }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("job_actions_uq").on(t.userId, t.jobId, t.action), index("job_actions_user_action_idx").on(t.userId, t.action)],
+);
+
+/** A saved search that the in-process scheduler runs on a cadence. */
+export const automations = pgTable(
+  "automations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    resumeId: uuid("resume_id").notNull().references(() => resumes.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** The run request minus resumeId — same shape as `runs.request`. */
+    request: jsonb("request").notNull(),
+    frequency: text("frequency", { enum: ["daily", "weekdays", "weekly"] }).notNull(),
+    hour: integer("hour").notNull(),
+    minute: integer("minute").notNull().default(0),
+    /** 0 = Sunday … 6 = Saturday; only used by `weekly`. */
+    weekday: integer("weekday"),
+    /** Client's UTC offset in minutes, so "8:00" means the user's 8:00. */
+    tzOffsetMinutes: integer("tz_offset_minutes").notNull().default(0),
+    enabled: boolean("enabled").notNull().default(true),
+    lastRunId: uuid("last_run_id"),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+    lastResultCount: integer("last_result_count"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("automations_due_idx").on(t.enabled, t.nextRunAt)],
 );

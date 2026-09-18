@@ -67,7 +67,7 @@ export const authRoutes = new Hono<AppEnv>().post(
 
       return c.json(
         {
-          user: toMe(user),
+          user: await toMe(user),
           token: customToken,
         },
         201,

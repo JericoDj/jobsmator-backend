@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, asc, eq, getTableColumns, gt, sql as dsql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, sql as dsql } from "drizzle-orm";
 import { validator } from "hono-openapi";
 import { z } from "zod";
 import { db } from "@/db/client";
@@ -9,12 +9,13 @@ import { ApiError } from "@/lib/errors";
 import { IdParam, route } from "@/lib/openapi";
 import type { AppEnv } from "@/middleware";
 
-type JobRow = typeof jobs.$inferSelect & { saved: boolean; hidden: boolean; applied: boolean };
+type JobRow = typeof jobs.$inferSelect & { saved: boolean; hidden: boolean; applied: boolean; responded: boolean; interview: boolean };
 
 const toJob = (j: JobRow): Job => ({
   id: j.id, rank: j.rank, score: j.score, tier: j.tier, title: j.title, company: j.company, location: j.location,
   remote: j.remote, salary: j.salary, postedAt: j.postedAt?.toISOString() ?? null, url: j.url, site: j.site,
   matchedInterest: j.matchedInterest, why: j.why, redFlags: j.redFlags, saved: j.saved, hidden: j.hidden, applied: j.applied,
+  responded: j.responded, interview: j.interview,
 });
 
 const flag = (userId: string, action: string) =>
@@ -25,6 +26,8 @@ const withActions = (userId: string) => ({
   saved: flag(userId, "saved"),
   hidden: flag(userId, "hidden"),
   applied: flag(userId, "applied"),
+  responded: flag(userId, "responded"),
+  interview: flag(userId, "interview"),
 });
 
 const PAGE = 50;
@@ -63,7 +66,9 @@ export const runJobRoutes = new Hono<AppEnv>().get(
   },
 );
 
-function toggle(action: "saved" | "hidden" | "applied") {
+type Action = "saved" | "hidden" | "applied" | "responded" | "interview";
+
+function toggle(action: Action) {
   return async (c: any) => {
     const user = c.get("user");
     const [job] = await db.select({ id: jobs.id }).from(jobs).where(and(eq(jobs.id, c.req.valid("param").id), eq(jobs.userId, user.id)));
@@ -79,10 +84,73 @@ function toggle(action: "saved" | "hidden" | "applied") {
 }
 
 const ToggleBody = (key: string) => z.object({ [key]: z.boolean() });
-const toggleRoute = (key: "saved" | "hidden" | "applied", summary: string) =>
+const toggleRoute = (key: Action, summary: string) =>
   route({ tag: "Jobs", summary, description: "Toggles the flag and returns its new value.", ok: { schema: ToggleBody(key) }, errors: { 404: "Unknown job" } });
 
+const FeedQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
 export const jobRoutes = new Hono<AppEnv>()
+  .get(
+    "/",
+    route({
+      tag: "Jobs",
+      summary: "Every job found for this user, across runs, best first",
+      description: "Backs the Jobs tab and Home. Hidden jobs are included with `hidden: true` so the client can filter locally.",
+      ok: { schema: JobsPage },
+    }),
+    async (c) => {
+      const user = c.get("user");
+      const rows = (await db
+        .select(withActions(user.id))
+        .from(jobs)
+        .where(eq(jobs.userId, user.id))
+        .orderBy(desc(jobs.score), asc(jobs.rank))
+        .limit(500)) as JobRow[];
+      return c.json({ items: rows.map(toJob), nextCursor: null });
+    },
+  )
+  .get(
+    "/feed",
+    route({
+      tag: "Jobs",
+      summary: "The job board: a random sample of everything in the database",
+      description:
+        "Jobs found for any user, one per distinct listing, in random order. Not scored against the caller, so `score`/`tier`/`why` reflect whoever the engine found it for. `saved`/`hidden`/`applied` are always false and the toggle endpoints do not apply — open `url` instead.",
+      ok: { schema: JobsPage },
+    }),
+    validator("query", FeedQuery),
+    async (c) => {
+      const { limit } = c.req.valid("query");
+      // DISTINCT ON collapses the same listing found for several users, then
+      // the outer query shuffles the sample.
+      const rows = (await db.execute(dsql`
+        select * from (
+          select distinct on (fingerprint) ${jobs}.*
+          from ${jobs}
+          where tier <> 'skip'
+          order by fingerprint, score desc
+        ) j
+        order by random()
+        limit ${limit}
+      `)) as unknown as Array<typeof jobs.$inferSelect & { posted_at?: Date | null; matched_interest?: string; red_flags?: string[] }>;
+      const items = rows.map((r) =>
+        toJob({
+          ...r,
+          postedAt: (r as { posted_at?: Date | null }).posted_at ?? null,
+          matchedInterest: (r as { matched_interest?: string }).matched_interest ?? "",
+          redFlags: (r as { red_flags?: string[] }).red_flags ?? [],
+          saved: false,
+          hidden: false,
+          applied: false,
+          responded: false,
+          interview: false,
+        }),
+      );
+      return c.json({ items, nextCursor: null });
+    },
+  )
   .get("/saved", route({ tag: "Jobs", summary: "Saved jobs across all runs", ok: { schema: JobsPage } }), async (c) => {
     const user = c.get("user");
     const rows = (await db
@@ -106,4 +174,6 @@ export const jobRoutes = new Hono<AppEnv>()
   )
   .post("/:id/save", toggleRoute("saved", "Save / unsave a job"), validator("param", IdParam), toggle("saved"))
   .post("/:id/hide", toggleRoute("hidden", "Hide / unhide a job"), validator("param", IdParam), toggle("hidden"))
-  .post("/:id/applied", toggleRoute("applied", "Mark / unmark as applied"), validator("param", IdParam), toggle("applied"));
+  .post("/:id/applied", toggleRoute("applied", "Mark / unmark as applied"), validator("param", IdParam), toggle("applied"))
+  .post("/:id/responded", toggleRoute("responded", "Mark / unmark as got a response"), validator("param", IdParam), toggle("responded"))
+  .post("/:id/interview", toggleRoute("interview", "Mark / unmark as interview"), validator("param", IdParam), toggle("interview"));

@@ -26,7 +26,7 @@ export const toRun = (r: typeof runs.$inferSelect): Run => ({
 });
 
 /** Runs the engine in the background and persists the outcome. Never throws. */
-async function executeRun(runId: string, user: AppUser, resume: typeof resumes.$inferSelect, body: CreateRunBody) {
+export async function executeRun(runId: string, user: AppUser, resume: typeof resumes.$inferSelect, body: CreateRunBody) {
   try {
     await db.update(runs).set({ status: "running" }).where(eq(runs.id, runId));
     const resumeUrl = await signedResumeUrl(resume.storagePath);

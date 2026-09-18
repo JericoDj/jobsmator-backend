@@ -59,10 +59,51 @@ export const Me = z.object({
   sheetId: z.string().nullable(),
   subscription: SubscriptionInfo.optional(),
   profile: z.record(z.string(), z.unknown()).optional(),
-  automations: z.array(z.record(z.string(), z.unknown())).optional(),
+  automations: z.array(z.lazy(() => Automation)).optional(),
   settings: z.record(z.string(), z.unknown()).optional(),
 });
 export type Me = z.infer<typeof Me>;
+
+// ---------- automations ----------
+export const AutomationFrequency = z.enum(["daily", "weekdays", "weekly"]);
+export type AutomationFrequency = z.infer<typeof AutomationFrequency>;
+
+export const CreateAutomationBody = z.object({
+  name: z.string().min(1).max(80).optional(),
+  resumeId: z.string().uuid(),
+  interests: z.array(z.string().min(1)).min(1).max(5),
+  sites: z.array(z.enum(JOB_SITES)).min(1),
+  jobsPerSite: z.number().int().min(5).max(50).default(20),
+  frequency: AutomationFrequency,
+  hour: z.number().int().min(0).max(23),
+  minute: z.number().int().min(0).max(59).default(0),
+  weekday: z.number().int().min(0).max(6).optional().describe("0 = Sunday … 6 = Saturday; required for `weekly`"),
+  tzOffsetMinutes: z.number().int().min(-840).max(840).default(0).describe("Client UTC offset in minutes, e.g. 480 for Manila"),
+});
+export type CreateAutomationBody = z.infer<typeof CreateAutomationBody>;
+
+export const UpdateAutomationBody = z.object({
+  name: z.string().min(1).max(80).optional(),
+  enabled: z.boolean().optional(),
+});
+
+export const Automation = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  /** Human label, e.g. "Every day · 8:00". */
+  schedule: z.string(),
+  frequency: AutomationFrequency,
+  hour: z.number(),
+  minute: z.number(),
+  weekday: z.number().nullable(),
+  interests: z.array(z.string()),
+  sites: z.array(z.string()),
+  enabled: z.boolean(),
+  lastRunAt: z.string().nullable(),
+  nextRunAt: z.string().nullable(),
+  lastResultCount: z.number().nullable(),
+});
+export type Automation = z.infer<typeof Automation>;
 
 // ---------- resumes ----------
 export const CreateResumeBody = z.object({
@@ -131,6 +172,10 @@ export const Job = z.object({
   saved: z.boolean(),
   hidden: z.boolean(),
   applied: z.boolean(),
+  /** The company replied after you applied. */
+  responded: z.boolean(),
+  /** You have (or had) an interview. */
+  interview: z.boolean(),
 });
 export type Job = z.infer<typeof Job>;
 

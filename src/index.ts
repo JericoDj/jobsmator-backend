@@ -13,13 +13,15 @@ import { me } from "@/routes/me";
 import { resumeRoutes } from "@/routes/resumes";
 import { runRoutes } from "@/routes/runs";
 import { jobRoutes, runJobRoutes } from "@/routes/jobs";
+import { automationRoutes } from "@/routes/automations";
 import { startMaintenance } from "@/jobs/maintenance";
+import { startAutomations } from "@/jobs/automations";
 
 export const app = new Hono<AppEnv>();
 
 app.use("*", requestId);
 app.use("*", honoLogger((msg) => logger.debug(msg)));
-app.use("/v1/*", cors({ origin: env.WEB_ORIGIN.split(","), allowHeaders: ["authorization", "content-type"], exposeHeaders: ["x-request-id"] }));
+app.use("/v1/*", cors({ origin: env.WEB_ORIGIN === "*" ? "*" : env.WEB_ORIGIN.split(","), allowHeaders: ["authorization", "content-type"], exposeHeaders: ["x-request-id"] }));
 app.onError(errorHandler);
 app.notFound((c) => c.json({ error: "not_found", message: "No such endpoint." }, 404));
 
@@ -32,6 +34,7 @@ v1.route("/resumes", resumeRoutes);
 v1.route("/runs", runRoutes);
 v1.route("/runs", runJobRoutes);
 v1.route("/jobs", jobRoutes);
+v1.route("/automations", automationRoutes);
 app.route("/v1", v1);
 
 // ---- API docs: OpenAPI 3.1 at /openapi.json, Scalar UI at /docs
@@ -54,6 +57,7 @@ app.get(
         { name: "Resumes", description: "Uploaded resume files" },
         { name: "Runs", description: "Asynchronous search runs against the n8n engine" },
         { name: "Jobs", description: "Ranked results and user actions on them" },
+        { name: "Automations", description: "Scheduled search runs" },
       ],
       components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "Firebase ID token" } } },
     },
@@ -63,6 +67,7 @@ app.get("/docs", Scalar({ url: "/openapi.json", pageTitle: "JobsMator API", them
 
 if (import.meta.main) {
   startMaintenance();
+  startAutomations();
   logger.info({ port: env.PORT, env: env.NODE_ENV, docs: `http://localhost:${env.PORT}/docs` }, "jobsmator-api listening");
 }
 

@@ -8,6 +8,13 @@
       "when": 1789404169657,
       "tag": "0000_equal_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789629762169,
+      "tag": "0001_stormy_star_brand",
+      "breakpoints": true
     }
   ]
 }
