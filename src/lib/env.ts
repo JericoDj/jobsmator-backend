@@ -6,6 +6,8 @@ const EnvSchema = z.object({
   DATABASE_URL: z.string().url(),
   N8N_BASE_URL: z.string().url(),
   N8N_WEBHOOK_SECRET: z.string().min(1),
+  OPENROUTER_API_KEY: z.string().min(1).optional(),
+
   FIREBASE_SERVICE_ACCOUNT: z.string().min(1).describe("base64-encoded service account JSON"),
   FIREBASE_STORAGE_BUCKET: z.string().min(1),
   WEB_ORIGIN: z.string().default("http://localhost:3000"),
