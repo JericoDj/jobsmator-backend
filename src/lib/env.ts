@@ -11,7 +11,7 @@ const EnvSchema = z.object({
   FIREBASE_SERVICE_ACCOUNT: z.string().min(1).describe("base64-encoded service account JSON"),
   FIREBASE_STORAGE_BUCKET: z.string().min(1),
   WEB_ORIGIN: z.string().default("http://localhost:3000"),
-  RUNS_PER_HOUR: z.coerce.number().default(5),
+  RUNS_PER_HOUR: z.coerce.number().default(30),
   ENGINE_TIMEOUT_MS: z.coerce.number().default(120_000),
 });
 

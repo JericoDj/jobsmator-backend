@@ -141,6 +141,7 @@ export const RunStats = z.object({
   already_processed: z.number(),
   scored: z.number(),
   recommended: z.number(),
+  feedback: z.string().optional(),
   recommended_per_site: z.record(z.string(), z.number()),
 });
 export const Run = z.object({
