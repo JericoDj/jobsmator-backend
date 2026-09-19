@@ -59,7 +59,8 @@ export async function executeRun(runId: string, user: AppUser, resume: typeof re
           .insert(jobs)
           .values(
             result.jobs.map((j) => ({
-              runId, userId: user.id, fingerprint: j.fingerprint, rank: j.rank, score: j.score, tier: j.tier,
+              runId, userId: user.id, fingerprint: j.fingerprint, rank: j.rank, score: j.score, 
+              tier: j.score >= 70 ? "strong" : "good",
               title: j.title, company: j.company, location: j.location, remote: j.remote, salary: j.salary,
               postedAt: j.postedAt ? new Date(j.postedAt) : null, url: j.url, site: j.site, source: j.source,
               matchedInterest: j.matchedInterest, why: j.why, redFlags: j.redFlags,
@@ -112,13 +113,19 @@ export const runRoutes = new Hono<AppEnv>()
         .where(and(eq(runs.userId, user.id), inArray(runs.status, ["queued", "running"])));
       if ((activeRow?.active ?? 0) > 0) throw new ApiError("run_in_progress", "A search is already running — hang on.");
 
-      const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const isPro = user.plan === "pro";
+      const searchLimit = isPro ? 5 : 1;
+      const periodLabel = isPro ? "this hour" : "today";
+      const periodMs = isPro ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+      
+      const since = new Date(Date.now() - periodMs);
       const [recentRow] = await db
         .select({ recent: dsql<number>`count(*)::int` })
         .from(runs)
-        .where(and(eq(runs.userId, user.id), gt(runs.startedAt, hourAgo)));
-      if ((recentRow?.recent ?? 0) >= env.RUNS_PER_HOUR) {
-        throw new ApiError("too_many_runs", `You've used ${env.RUNS_PER_HOUR} searches this hour. Try again later.`);
+        .where(and(eq(runs.userId, user.id), gt(runs.startedAt, since)));
+        
+      if ((recentRow?.recent ?? 0) >= searchLimit) {
+        throw new ApiError("too_many_runs", `You've used ${searchLimit} searches ${periodLabel}. Upgrade or try again later.`);
       }
 
       const { resumeId, ...request } = body;

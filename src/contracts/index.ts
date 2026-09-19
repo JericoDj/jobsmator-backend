@@ -53,6 +53,7 @@ export type RegisterResponse = z.infer<typeof RegisterResponse>;
 
 export const Me = z.object({
   id: z.string().uuid(),
+  runId: z.string().uuid().optional(),
   email: z.string().email().nullable(),
   displayName: z.string().nullable(),
   defaults: UserDefaults,
@@ -89,6 +90,7 @@ export const UpdateAutomationBody = z.object({
 
 export const Automation = z.object({
   id: z.string().uuid(),
+  runId: z.string().uuid().optional(),
   name: z.string(),
   /** Human label, e.g. "Every day · 8:00". */
   schedule: z.string(),
@@ -114,6 +116,7 @@ export const CreateResumeBody = z.object({
 }).refine(data => data.storagePath || data.url, { message: "Must provide either storagePath or url" });
 export const Resume = z.object({
   id: z.string().uuid(),
+  runId: z.string().uuid().optional(),
   filename: z.string(),
   sizeBytes: z.number().nullable(),
   createdAt: z.string(),
@@ -142,6 +145,7 @@ export const RunStats = z.object({
 });
 export const Run = z.object({
   id: z.string().uuid(),
+  runId: z.string().uuid().optional(),
   status: RunStatus,
   resumeId: z.string().uuid(),
   request: CreateRunBody.omit({ resumeId: true }),
@@ -156,6 +160,7 @@ export type Run = z.infer<typeof Run>;
 // ---------- jobs ----------
 export const Job = z.object({
   id: z.string().uuid(),
+  runId: z.string().uuid().optional(),
   rank: z.number(),
   score: z.number(),
   tier: Tier,

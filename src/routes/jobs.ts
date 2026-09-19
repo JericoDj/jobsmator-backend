@@ -12,7 +12,7 @@ import type { AppEnv } from "@/middleware";
 type JobRow = typeof jobs.$inferSelect & { saved: boolean; hidden: boolean; applied: boolean; responded: boolean; interview: boolean };
 
 const toJob = (j: JobRow): Job => ({
-  id: j.id, rank: j.rank, score: j.score, tier: j.tier, title: j.title, company: j.company, location: j.location,
+  id: j.id, runId: (j as any).runId ?? (j as any).run_id, rank: j.rank, score: j.score, tier: j.tier, title: j.title, company: j.company, location: j.location,
   remote: j.remote, salary: j.salary, postedAt: j.postedAt?.toISOString() ?? null, url: j.url, site: j.site,
   matchedInterest: j.matchedInterest, why: j.why, redFlags: j.redFlags, saved: j.saved, hidden: j.hidden, applied: j.applied,
   responded: j.responded, interview: j.interview,

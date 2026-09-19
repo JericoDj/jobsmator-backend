@@ -1,9 +1,9 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { and, eq, gt, sql as dsql } from "drizzle-orm";
 import { validator } from "hono-openapi";
 import { z } from "zod";
 import { db } from "@/db/client";
-import { resumes, users } from "@/db/schema";
+import { resumes, users, runs } from "@/db/schema";
 import { Me, UserDefaults } from "@/contracts";
 import { route } from "@/lib/openapi";
 import { firebaseAuth } from "@/services/auth";
@@ -14,6 +14,17 @@ import type { AppEnv } from "@/middleware";
 
 export async function toMe(u: typeof users.$inferSelect): Promise<Me> {
   const autos = await listAutomations(u.id);
+  
+  // Calculate searches used in the current period
+  const isPro = u.plan === "pro";
+  const periodMs = isPro ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+  const since = new Date(Date.now() - periodMs);
+  
+  const [runsRow] = await db
+    .select({ count: dsql<number>`count(*)::int` })
+    .from(runs)
+    .where(and(eq(runs.userId, u.id), gt(runs.startedAt, since)));
+
   return {
     id: u.id,
     email: u.email,
@@ -22,7 +33,7 @@ export async function toMe(u: typeof users.$inferSelect): Promise<Me> {
     sheetId: u.sheetId,
     subscription: {
       plan: u.plan as "free" | "pro",
-      searchesUsed: 0, // TODO: query this if needed later
+      searchesUsed: runsRow?.count ?? 0,
       renewsAt: u.renewsAt?.toISOString() ?? null,
     },
     profile: {},
