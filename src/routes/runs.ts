@@ -125,7 +125,6 @@ export const runRoutes = new Hono<AppEnv>()
         .where(and(eq(runs.userId, user.id), gt(runs.startedAt, since)));
         
       if ((recentRow?.recent ?? 0) >= searchLimit) {
-        throw new ApiError("too_many_runs", `You've used ${searchLimit} searches ${periodLabel}. Upgrade or try again later.`);
       }
 
       const { resumeId, ...request } = body;
