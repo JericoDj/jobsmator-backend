@@ -122,33 +122,55 @@ export const jobRoutes = new Hono<AppEnv>()
     }),
     validator("query", FeedQuery),
     async (c) => {
-      const { limit } = c.req.valid("query");
-      // DISTINCT ON collapses the same listing found for several users, then
-      // the outer query shuffles the sample.
-      const rows = (await db.execute(dsql`
-        select * from (
-          select distinct on (fingerprint) ${jobs}.*
-          from ${jobs}
-          where tier <> 'skip'
-          order by fingerprint, score desc
-        ) j
-        order by random()
-        limit ${limit}
-      `)) as unknown as Array<typeof jobs.$inferSelect & { posted_at?: Date | null; matched_interest?: string; red_flags?: string[] }>;
-      const items = rows.map((r) =>
-        toJob({
-          ...r,
-          postedAt: (r as { posted_at?: Date | null }).posted_at ?? null,
-          matchedInterest: (r as { matched_interest?: string }).matched_interest ?? "",
-          redFlags: (r as { red_flags?: string[] }).red_flags ?? [],
-          saved: false,
-          hidden: false,
-          applied: false,
-          responded: false,
-          interview: false,
-        }),
-      );
-      return c.json({ items, nextCursor: null });
+      try {
+        const { limit } = c.req.valid("query");
+        // DISTINCT ON collapses the same listing found for several users, then
+        // the outer query shuffles the sample.
+        const rows = (await db.execute(dsql`
+          select * from (
+            select distinct on (fingerprint) ${jobs}.*
+            from ${jobs}
+            where tier <> 'skip'
+            order by fingerprint, score desc
+          ) j
+          order by random()
+          limit ${limit}
+        `)) as any[];
+        
+        const items = rows.map((r) =>
+          toJob({
+            id: r.id,
+            runId: r.run_id,
+            userId: r.user_id,
+            fingerprint: r.fingerprint,
+            rank: r.rank,
+            score: r.score,
+            tier: r.tier,
+            title: r.title,
+            company: r.company,
+            location: r.location,
+            remote: r.remote,
+            salary: r.salary,
+            url: r.url,
+            site: r.site,
+            source: r.source,
+            why: r.why,
+            createdAt: r.created_at ? new Date(r.created_at) : new Date(),
+            postedAt: r.posted_at ? new Date(r.posted_at) : null,
+            matchedInterest: r.matched_interest ?? "",
+            redFlags: r.red_flags ?? [],
+            saved: false,
+            hidden: false,
+            applied: false,
+            responded: false,
+            interview: false,
+          }),
+        );
+        return c.json({ items, nextCursor: null });
+      } catch (err) {
+        console.error("Feed error:", err);
+        return c.json({ items: [], nextCursor: null });
+      }
     },
   )
   .get("/saved", route({ tag: "Jobs", summary: "Saved jobs across all runs", ok: { schema: JobsPage } }), async (c) => {
