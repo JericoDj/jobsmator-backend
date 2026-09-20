@@ -44,9 +44,11 @@ const BOARD_SHUFFLES_PER_DAY = 5;
 const today = () => new Date().toISOString().slice(0, 10);
 
 /**
- * Picks a board for the user: listings matching their interests first (by
- * matched_interest or title), then the same industries, then anything, all
- * excluding listings they already have. One row per distinct listing.
+ * Picks a board for the user. Interest matches (matched_interest or title)
+ * come first, then the same industries, then anything. Within a band,
+ * listings the user doesn't have yet come before their own, so a fresh
+ * account sees other people's finds and a heavy user still sees relevant
+ * jobs. Tier is deliberately ignored: it reflects whoever ran the search.
  */
 async function pickBoard(user: AppUser, limit: number): Promise<string[]> {
   const interests: string[] = ((user.defaults as any)?.interests ?? []).map((s: string) => String(s).trim()).filter(Boolean);
@@ -58,12 +60,11 @@ async function pickBoard(user: AppUser, limit: number): Promise<string[]> {
     select id from (
       select distinct on (fingerprint) ${jobs}.*
       from ${jobs}
-      where tier <> 'skip'
-        and fingerprint not in (select fingerprint from ${jobs} where user_id = ${user.id})
-      order by fingerprint, score desc
+      order by fingerprint, (user_id = ${user.id}) asc, score desc
     ) j
     order by
       case when ${interestMatch} then 0 when ${industryMatch} then 1 else 2 end,
+      (j.user_id = ${user.id}) asc,
       random()
     limit ${limit}
   `)) as Array<{ id: string }>;
