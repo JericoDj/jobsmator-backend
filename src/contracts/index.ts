@@ -141,7 +141,6 @@ export const RunStats = z.object({
   already_processed: z.number(),
   scored: z.number(),
   recommended: z.number(),
-      feedback: z.string().optional(),
   feedback: z.string().optional(),
   recommended_per_site: z.record(z.string(), z.number()),
 });
@@ -218,7 +217,9 @@ export type EngineRequest = z.infer<typeof EngineRequest>;
 export const EngineJob = z.object({
   rank: z.number(),
   score: z.number(),
-  tier: z.enum(["strong", "good"]),
+  // Engine may label weak matches "skip"/"weak" or omit the tier; the API
+  // recomputes it from score + minScore anyway.
+  tier: z.enum(["strong", "good", "skip", "weak"]).optional(),
   title: z.string(),
   company: z.string().default(""),
   location: z.string().default(""),
@@ -244,6 +245,7 @@ export const EngineResponse = z.object({
     .nullable()
     .optional(),
   jobs: z.array(EngineJob).default([]),
+  recommendation: z.string().optional(),
   generated_at: z.string().optional(),
 });
 export type EngineResponse = z.infer<typeof EngineResponse>;

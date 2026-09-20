@@ -60,7 +60,7 @@ export async function executeRun(runId: string, user: AppUser, resume: typeof re
           .values(
             result.jobs.map((j) => ({
               runId, userId: user.id, fingerprint: j.fingerprint, rank: j.rank, score: j.score, 
-              tier: (j.score >= 70 ? "strong" : j.score >= body.minScore ? "good" : "skip") as "strong" | "good" | "skip",
+              tier: (j.score >= 70 ? "strong" : j.score >= (body.minScore ?? 0) ? "good" : "skip") as "strong" | "good" | "skip",
               title: j.title, company: j.company, location: j.location, remote: j.remote, salary: j.salary,
               postedAt: j.postedAt ? new Date(j.postedAt) : null, url: j.url, site: j.site, source: j.source,
               matchedInterest: j.matchedInterest, why: j.why, redFlags: j.redFlags,
