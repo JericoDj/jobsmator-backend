@@ -200,7 +200,7 @@ export const jobRoutes = new Hono<AppEnv>()
     route({
       tag: "Jobs",
       summary: "Score a job for the current user",
-      description: "Recalculates fit using OpenRouter, consumes 1 credit, creates a new job record for this user if it's from the feed.",
+      description: "Recalculates fit using OpenRouter and consumes 1 credit. A job the user already has is updated in place; a board job becomes their own copy.",
       ok: { schema: Job },
       errors: { 404: "Unknown job" }
     }),
@@ -290,26 +290,41 @@ Summary/Why: ${sourceJob.why}
         stats: { jobsFound: 1, matches: 1 }
       }).returning();
 
-      // Create new job row for this user
-      const [newJob] = await db.insert(jobs).values({
-        runId: run!.id,
-        userId: user.id,
-        fingerprint: sourceJob.fingerprint,
-        rank: sourceJob.rank,
-        score: aiRes.score,
-        tier: aiRes.score >= 70 ? "strong" : aiRes.score >= 60 ? "good" : "skip",
-        title: sourceJob.title,
-        company: sourceJob.company,
-        location: sourceJob.location,
-        remote: sourceJob.remote,
-        salary: sourceJob.salary,
-        postedAt: sourceJob.postedAt,
-        url: sourceJob.url,
-        site: sourceJob.site,
-        matchedInterest: interests[0] || "Custom",
-        why: aiRes.why || "",
-        redFlags: aiRes.redFlags || [],
-      }).returning();
+      const score = Math.max(0, Math.min(100, Math.round(Number(aiRes.score) || 0)));
+      const scored = {
+        score,
+        tier: (score >= 70 ? "strong" : score >= 60 ? "good" : "skip") as "strong" | "good" | "skip",
+        why: String(aiRes.why || ""),
+        redFlags: Array.isArray(aiRes.redFlags) ? aiRes.redFlags.map(String) : [],
+      };
+
+      // Re-analysing a job the user already has updates it in place; scoring
+      // a board job creates their own copy (or refreshes it if they had one).
+      if (sourceJob.userId === user.id) {
+        const [updated] = await db.update(jobs).set(scored).where(eq(jobs.id, sourceJob.id)).returning();
+        return c.json(toJob(updated as any));
+      }
+      const [newJob] = await db
+        .insert(jobs)
+        .values({
+          runId: run!.id,
+          userId: user.id,
+          fingerprint: sourceJob.fingerprint,
+          rank: sourceJob.rank,
+          ...scored,
+          title: sourceJob.title,
+          company: sourceJob.company,
+          location: sourceJob.location,
+          remote: sourceJob.remote,
+          salary: sourceJob.salary,
+          postedAt: sourceJob.postedAt,
+          url: sourceJob.url,
+          site: sourceJob.site,
+          source: sourceJob.source,
+          matchedInterest: interests[0] || "Custom",
+        })
+        .onConflictDoUpdate({ target: [jobs.userId, jobs.fingerprint], set: scored })
+        .returning();
 
       return c.json(toJob(newJob as any));
     }
