@@ -175,6 +175,8 @@ export const Job = z.object({
   site: z.string(),
   matchedInterest: z.string(),
   industry: z.string().default(""),
+  /** The source listing returned 404/410 when last checked. */
+  expired: z.boolean().default(false),
   why: z.string(),
   redFlags: z.array(z.string()),
   saved: z.boolean(),

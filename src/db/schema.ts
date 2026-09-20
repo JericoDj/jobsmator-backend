@@ -69,6 +69,9 @@ export const jobs = pgTable(
     why: text("why").notNull().default(""),
     redFlags: text("red_flags").array().notNull().default([]),
     industry: text("industry").notNull().default(""),
+    // Liveness of the source URL: when we last looked, and when it was gone (404/410).
+    checkedAt: timestamp("checked_at", { withTimezone: true }),
+    expiredAt: timestamp("expired_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

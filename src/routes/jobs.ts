@@ -10,13 +10,14 @@ import { IdParam, route } from "@/lib/openapi";
 import type { AppEnv, AppUser } from "@/middleware";
 import { env } from "@/lib/env";
 import { classifyIndustry } from "@/lib/industry";
+import { markExpired } from "@/lib/liveness";
 
 type JobRow = typeof jobs.$inferSelect & { saved: boolean; hidden: boolean; applied: boolean; responded: boolean; interview: boolean };
 
 const toJob = (j: JobRow): Job => ({
   id: j.id, runId: (j as any).runId ?? (j as any).run_id, rank: j.rank, score: j.score, tier: j.tier, title: j.title, company: j.company, location: j.location,
   remote: j.remote, salary: j.salary, postedAt: j.postedAt?.toISOString() ?? null, url: j.url, site: j.site,
-  matchedInterest: j.matchedInterest, industry: (j as any).industry ?? "", why: j.why, redFlags: j.redFlags, saved: j.saved, hidden: j.hidden, applied: j.applied,
+  matchedInterest: j.matchedInterest, industry: (j as any).industry ?? "", expired: !!(j as any).expiredAt, why: j.why, redFlags: j.redFlags, saved: j.saved, hidden: j.hidden, applied: j.applied,
   responded: j.responded, interview: j.interview,
 });
 
@@ -60,6 +61,7 @@ async function pickBoard(user: AppUser, limit: number): Promise<string[]> {
     select id from (
       select distinct on (fingerprint) ${jobs}.*
       from ${jobs}
+      where expired_at is null
       order by fingerprint, (user_id = ${user.id}) asc, score desc
     ) j
     order by
@@ -69,6 +71,20 @@ async function pickBoard(user: AppUser, limit: number): Promise<string[]> {
     limit ${limit}
   `)) as Array<{ id: string }>;
   return rows.map((r) => r.id);
+}
+
+/** Picks a board, drops anything whose listing has gone, and tops up once. */
+async function livePicks(user: AppUser, limit: number): Promise<string[]> {
+  let ids = await pickBoard(user, limit);
+  for (let round = 0; round < 2 && ids.length; round++) {
+    const rows = await db.select({ id: jobs.id, url: jobs.url, fingerprint: jobs.fingerprint, checkedAt: jobs.checkedAt, expiredAt: jobs.expiredAt }).from(jobs).where(inArray(jobs.id, ids));
+    const gone = await markExpired(rows);
+    if (!gone.size) break;
+    ids = ids.filter((id) => !gone.has(id));
+    const more = (await pickBoard(user, limit + gone.size)).filter((id) => !ids.includes(id) && !gone.has(id));
+    ids = [...ids, ...more].slice(0, limit);
+  }
+  return ids;
 }
 
 async function todaysBoard(user: AppUser, limit: number, reshuffle: boolean) {
@@ -85,7 +101,7 @@ async function todaysBoard(user: AppUser, limit: number, reshuffle: boolean) {
     shuffles += 1;
   }
   if (fresh || reshuffle || ids.length === 0) {
-    ids = await pickBoard(user, limit);
+    ids = await livePicks(user, limit);
     await db
       .insert(boards)
       .values({ userId: user.id, day, jobIds: ids, shuffles, updatedAt: new Date() })
@@ -230,7 +246,9 @@ export const jobRoutes = new Hono<AppEnv>()
     validator("param", IdParam),
     async (c) => {
       const user = c.get("user");
-      const [row] = (await db.select(withActions(user.id)).from(jobs).where(and(eq(jobs.id, c.req.valid("param").id), eq(jobs.userId, user.id)))) as JobRow[];
+      // Any listing can be opened (the board shows other users' finds); the
+      // action flags are always the caller's own.
+      const [row] = (await db.select(withActions(user.id)).from(jobs).where(eq(jobs.id, c.req.valid("param").id))) as JobRow[];
       if (!row) throw new ApiError("not_found", "That job is no longer here.");
       return c.json(toJob(row));
     },

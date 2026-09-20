@@ -36,6 +36,13 @@
       "when": 1789872638162,
       "tag": "0004_industry_and_boards",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789878490611,
+      "tag": "0005_job_liveness",
+      "breakpoints": true
     }
   ]
 }
