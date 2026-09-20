@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, integer, boolean, timestamp, jsonb, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, boolean, timestamp, jsonb, date, uniqueIndex, index } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -68,12 +68,26 @@ export const jobs = pgTable(
     matchedInterest: text("matched_interest").notNull().default(""),
     why: text("why").notNull().default(""),
     redFlags: text("red_flags").array().notNull().default([]),
+    industry: text("industry").notNull().default(""),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("jobs_run_tier_rank_idx").on(t.runId, t.tier, t.rank),
     uniqueIndex("jobs_user_fingerprint_uq").on(t.userId, t.fingerprint),
+    index("jobs_industry_idx").on(t.industry),
   ],
+);
+
+/** The job board a user sees today: fixed picks, at most 5 reshuffles a day. */
+export const boards = pgTable(
+  "boards",
+  {
+    userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    jobIds: uuid("job_ids").array().notNull().default([]),
+    shuffles: integer("shuffles").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
 );
 
 export const jobActions = pgTable(

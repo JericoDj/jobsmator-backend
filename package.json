@@ -10,7 +10,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
-    "sync:web": "cp src/contracts/index.ts ../jobsmator-web/lib/contracts.ts"
+    "sync:web": "cp src/contracts/index.ts ../jobsmator-web/lib/contracts.ts",
+    "industry:backfill": "bun run scripts/backfill-industry.ts"
   },
   "dependencies": {
     "@scalar/hono-api-reference": "^0.12.1",

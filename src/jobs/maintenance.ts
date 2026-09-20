@@ -1,6 +1,7 @@
-import { and, inArray, isNotNull, lt } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, lt } from "drizzle-orm";
 import { db } from "@/db/client";
-import { runs } from "@/db/schema";
+import { jobs, runs } from "@/db/schema";
+import { classifyIndustry } from "@/lib/industry";
 import { logger } from "@/lib/logger";
 
 /** Anything left queued/running from a previous process (or hung) is dead after 3 minutes. */
@@ -25,11 +26,19 @@ export async function purgeRawResponses() {
   if (rows.length) logger.info({ count: rows.length }, "purged raw engine responses");
 }
 
+/** Labels jobs inserted before the industry column existed. Idempotent: only rows still at ''. */
+export async function backfillIndustry() {
+  const rows = await db.select({ id: jobs.id, title: jobs.title, company: jobs.company }).from(jobs).where(eq(jobs.industry, ""));
+  for (const r of rows) await db.update(jobs).set({ industry: classifyIndustry(r.title, r.company) }).where(eq(jobs.id, r.id));
+  if (rows.length) logger.info({ count: rows.length }, "labelled job industries");
+}
+
 /** In-process scheduler — enough for one API instance. Move to Railway cron if we scale out. */
 export function startMaintenance() {
   const safe = (name: string, fn: () => Promise<void>) => () => fn().catch((err) => logger.warn({ err }, `${name} failed`));
   safe("sweepStaleRuns", sweepStaleRuns)();
   safe("purgeRawResponses", purgeRawResponses)();
+  safe("backfillIndustry", backfillIndustry)();
   setInterval(safe("sweepStaleRuns", sweepStaleRuns), 60 * 1000);
   setInterval(safe("purgeRawResponses", purgeRawResponses), 6 * 60 * 60 * 1000);
 }

@@ -10,6 +10,7 @@ import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { IdParam, route } from "@/lib/openapi";
 import { runEngine } from "@/services/engine";
+import { classifyIndustry } from "@/lib/industry";
 import { signedResumeUrl } from "@/services/storage";
 import type { AppEnv, AppUser } from "@/middleware";
 
@@ -64,6 +65,7 @@ export async function executeRun(runId: string, user: AppUser, resume: typeof re
               title: j.title, company: j.company, location: j.location, remote: j.remote, salary: j.salary,
               postedAt: j.postedAt ? new Date(j.postedAt) : null, url: j.url, site: j.site, source: j.source,
               matchedInterest: j.matchedInterest, why: j.why, redFlags: j.redFlags,
+              industry: classifyIndustry(j.title, j.company),
             })),
           )
           .onConflictDoNothing();

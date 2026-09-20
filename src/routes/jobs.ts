@@ -1,21 +1,22 @@
 import { Hono } from "hono";
-import { and, asc, desc, eq, getTableColumns, gt, sql as dsql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gt, inArray, sql as dsql } from "drizzle-orm";
 import { validator } from "hono-openapi";
 import { z } from "zod";
 import { db } from "@/db/client";
-import { jobActions, jobs, runs, users, resumes } from "@/db/schema";
+import { boards, jobActions, jobs, runs, users, resumes } from "@/db/schema";
 import { Job, JobsPage, Tier } from "@/contracts";
 import { ApiError } from "@/lib/errors";
 import { IdParam, route } from "@/lib/openapi";
-import type { AppEnv } from "@/middleware";
+import type { AppEnv, AppUser } from "@/middleware";
 import { env } from "@/lib/env";
+import { classifyIndustry } from "@/lib/industry";
 
 type JobRow = typeof jobs.$inferSelect & { saved: boolean; hidden: boolean; applied: boolean; responded: boolean; interview: boolean };
 
 const toJob = (j: JobRow): Job => ({
   id: j.id, runId: (j as any).runId ?? (j as any).run_id, rank: j.rank, score: j.score, tier: j.tier, title: j.title, company: j.company, location: j.location,
   remote: j.remote, salary: j.salary, postedAt: j.postedAt?.toISOString() ?? null, url: j.url, site: j.site,
-  matchedInterest: j.matchedInterest, why: j.why, redFlags: j.redFlags, saved: j.saved, hidden: j.hidden, applied: j.applied,
+  matchedInterest: j.matchedInterest, industry: (j as any).industry ?? "", why: j.why, redFlags: j.redFlags, saved: j.saved, hidden: j.hidden, applied: j.applied,
   responded: j.responded, interview: j.interview,
 });
 
@@ -37,6 +38,67 @@ const JobsQuery = z.object({
   site: z.string().optional(),
   cursor: z.coerce.number().int().min(0).optional().describe("`nextCursor` from the previous page (a rank)"),
 });
+
+
+const BOARD_SHUFFLES_PER_DAY = 5;
+const today = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * Picks a board for the user: listings matching their interests first (by
+ * matched_interest or title), then the same industries, then anything, all
+ * excluding listings they already have. One row per distinct listing.
+ */
+async function pickBoard(user: AppUser, limit: number): Promise<string[]> {
+  const interests: string[] = ((user.defaults as any)?.interests ?? []).map((s: string) => String(s).trim()).filter(Boolean);
+  const industries = [...new Set(interests.map((i) => classifyIndustry(i)))].filter((i) => i !== "Other");
+  const interestClauses = interests.map((i) => dsql`(j.matched_interest ilike ${"%" + i + "%"} or j.title ilike ${"%" + i + "%"})`);
+  const interestMatch = interestClauses.length ? dsql.join(interestClauses, dsql` or `) : dsql`false`;
+  const industryMatch = industries.length ? dsql`j.industry in (${dsql.join(industries.map((i) => dsql`${i}`), dsql`, `)})` : dsql`false`;
+  const rows = (await db.execute(dsql`
+    select id from (
+      select distinct on (fingerprint) ${jobs}.*
+      from ${jobs}
+      where tier <> 'skip'
+        and fingerprint not in (select fingerprint from ${jobs} where user_id = ${user.id})
+      order by fingerprint, score desc
+    ) j
+    order by
+      case when ${interestMatch} then 0 when ${industryMatch} then 1 else 2 end,
+      random()
+    limit ${limit}
+  `)) as Array<{ id: string }>;
+  return rows.map((r) => r.id);
+}
+
+async function todaysBoard(user: AppUser, limit: number, reshuffle: boolean) {
+  const day = today();
+  const [existing] = await db.select().from(boards).where(eq(boards.userId, user.id));
+  const fresh = !existing || existing.day !== day;
+  let shuffles = fresh ? 0 : existing.shuffles;
+  let ids = fresh ? [] : existing.jobIds;
+
+  if (reshuffle && !fresh) {
+    if (shuffles >= BOARD_SHUFFLES_PER_DAY) {
+      throw new ApiError("too_many_shuffles", `You've shuffled ${BOARD_SHUFFLES_PER_DAY} times today. New picks land tomorrow.`);
+    }
+    shuffles += 1;
+  }
+  if (fresh || reshuffle || ids.length === 0) {
+    ids = await pickBoard(user, limit);
+    await db
+      .insert(boards)
+      .values({ userId: user.id, day, jobIds: ids, shuffles, updatedAt: new Date() })
+      .onConflictDoUpdate({ target: boards.userId, set: { day, jobIds: ids, shuffles, updatedAt: new Date() } });
+  }
+
+  const rows = ids.length ? await db.select().from(jobs).where(inArray(jobs.id, ids)) : [];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const items = ids
+    .map((id) => byId.get(id))
+    .filter(Boolean)
+    .map((r) => toJob({ ...(r as any), saved: false, hidden: false, applied: false, responded: false, interview: false }));
+  return { items, nextCursor: null, shufflesLeft: Math.max(0, BOARD_SHUFFLES_PER_DAY - shuffles) };
+}
 
 export const runJobRoutes = new Hono<AppEnv>().get(
   "/:id/jobs",
@@ -116,62 +178,39 @@ export const jobRoutes = new Hono<AppEnv>()
     "/feed",
     route({
       tag: "Jobs",
-      summary: "The job board: a random sample of everything in the database",
+      summary: "The job board for today",
       description:
-        "Jobs found for any user, one per distinct listing, in random order. Not scored against the caller, so `score`/`tier`/`why` reflect whoever the engine found it for. `saved`/`hidden`/`applied` are always false and the toggle endpoints do not apply — open `url` instead.",
+        "Up to `limit` listings picked for the caller from everything in the database: their interests first, then the same industries, then anything else. " +
+        "The picks are fixed for the day so the board is stable between opens; `POST /jobs/feed/shuffle` redraws it, at most 5 times a day. " +
+        "Not scored against the caller, so `score`/`tier`/`why` reflect whoever the engine found it for. `saved`/`hidden`/`applied` are always false.",
       ok: { schema: JobsPage },
     }),
     validator("query", FeedQuery),
     async (c) => {
+      const user = c.get("user");
+      const { limit } = c.req.valid("query");
       try {
-        const { limit } = c.req.valid("query");
-        // DISTINCT ON collapses the same listing found for several users, then
-        // the outer query shuffles the sample.
-        const rows = (await db.execute(dsql`
-          select * from (
-            select distinct on (fingerprint) ${jobs}.*
-            from ${jobs}
-            where tier <> 'skip'
-            order by fingerprint, score desc
-          ) j
-          order by random()
-          limit ${limit}
-        `)) as any[];
-        
-        const items = rows.map((r) =>
-          toJob({
-            id: r.id,
-            runId: r.run_id,
-            userId: r.user_id,
-            fingerprint: r.fingerprint,
-            rank: r.rank,
-            score: r.score,
-            tier: r.tier,
-            title: r.title,
-            company: r.company,
-            location: r.location,
-            remote: r.remote,
-            salary: r.salary,
-            url: r.url,
-            site: r.site,
-            source: r.source,
-            why: r.why,
-            createdAt: r.created_at ? new Date(r.created_at) : new Date(),
-            postedAt: r.posted_at ? new Date(r.posted_at) : null,
-            matchedInterest: r.matched_interest ?? "",
-            redFlags: r.red_flags ?? [],
-            saved: false,
-            hidden: false,
-            applied: false,
-            responded: false,
-            interview: false,
-          }),
-        );
-        return c.json({ items, nextCursor: null });
+        return c.json(await todaysBoard(user, limit, false));
       } catch (err) {
         console.error("Feed error:", err);
-        return c.json({ items: [], nextCursor: null });
+        return c.json({ items: [], nextCursor: null, shufflesLeft: 0 });
       }
+    },
+  )
+  .post(
+    "/feed/shuffle",
+    route({
+      tag: "Jobs",
+      summary: "Redraw today's job board",
+      description: "Picks a fresh board for the caller. Allowed 5 times a day; after that `too_many_shuffles` until tomorrow.",
+      ok: { schema: JobsPage },
+      errors: { 429: "Shuffles used up for today" },
+    }),
+    validator("query", FeedQuery),
+    async (c) => {
+      const user = c.get("user");
+      const { limit } = c.req.valid("query");
+      return c.json(await todaysBoard(user, limit, true));
     },
   )
   .get("/saved", route({ tag: "Jobs", summary: "Saved jobs across all runs", ok: { schema: JobsPage } }), async (c) => {
@@ -322,6 +361,7 @@ Summary/Why: ${sourceJob.why}
           site: sourceJob.site,
           source: sourceJob.source,
           matchedInterest: interests[0] || "Custom",
+          industry: sourceJob.industry || classifyIndustry(sourceJob.title, sourceJob.company),
         })
         .onConflictDoUpdate({ target: [jobs.userId, jobs.fingerprint], set: scored })
         .returning();

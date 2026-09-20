@@ -11,6 +11,7 @@ export type ApiErrorCode =
   | "invalid_request"
   | "resume_unreadable"
   | "engine_unavailable"
+  | "too_many_shuffles"
   | "too_many_runs"
   | "run_in_progress"
   | "conflict"
@@ -23,6 +24,7 @@ const STATUS: Record<ApiErrorCode, number> = {
   invalid_request: 400,
   resume_unreadable: 422,
   engine_unavailable: 503,
+  too_many_shuffles: 429,
   too_many_runs: 429,
   run_in_progress: 409,
   conflict: 409,

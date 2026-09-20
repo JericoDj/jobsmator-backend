@@ -174,6 +174,7 @@ export const Job = z.object({
   url: z.string().url(),
   site: z.string(),
   matchedInterest: z.string(),
+  industry: z.string().default(""),
   why: z.string(),
   redFlags: z.array(z.string()),
   saved: z.boolean(),
@@ -189,6 +190,8 @@ export type Job = z.infer<typeof Job>;
 export const JobsPage = z.object({
   items: z.array(Job),
   nextCursor: z.string().nullable(),
+  /** Board only: reshuffles left today. */
+  shufflesLeft: z.number().int().optional(),
 });
 
 // ---------- errors ----------

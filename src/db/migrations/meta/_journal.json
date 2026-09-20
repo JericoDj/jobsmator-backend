@@ -29,6 +29,13 @@
       "when": 1789774858649,
       "tag": "0003_third_korvac",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789872638162,
+      "tag": "0004_industry_and_boards",
+      "breakpoints": true
     }
   ]
 }
