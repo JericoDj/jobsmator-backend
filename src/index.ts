@@ -15,6 +15,7 @@ import { runRoutes } from "@/routes/runs";
 import { jobRoutes, runJobRoutes } from "@/routes/jobs";
 import { automationRoutes } from "@/routes/automations";
 import { billingRoutes } from "@/routes/billing";
+import { aiRoutes } from "@/routes/ai";
 import { startMaintenance } from "@/jobs/maintenance";
 import { startAutomations } from "@/jobs/automations";
 
@@ -37,6 +38,7 @@ v1.route("/runs", runJobRoutes);
 v1.route("/jobs", jobRoutes);
 v1.route("/automations", automationRoutes);
 v1.route("/billing", billingRoutes);
+v1.route("/ai", aiRoutes);
 app.route("/v1", v1);
 
 // ---- API docs: OpenAPI 3.1 at /openapi.json, Scalar UI at /docs
@@ -60,6 +62,7 @@ app.get(
         { name: "Runs", description: "Asynchronous search runs against the n8n engine" },
         { name: "Jobs", description: "Ranked results and user actions on them" },
         { name: "Automations", description: "Scheduled search runs" },
+        { name: "Ask JobsMator", description: "The in-app assistant: saved conversations, image attachments, tools" },
       ],
       components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "Firebase ID token" } } },
     },

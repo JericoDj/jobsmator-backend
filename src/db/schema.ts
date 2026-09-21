@@ -69,6 +69,7 @@ export const jobs = pgTable(
     why: text("why").notNull().default(""),
     redFlags: text("red_flags").array().notNull().default([]),
     industry: text("industry").notNull().default(""),
+    coverLetter: text("cover_letter"),
     // Liveness of the source URL: when we last looked, and when it was gone (404/410).
     checkedAt: timestamp("checked_at", { withTimezone: true }),
     expiredAt: timestamp("expired_at", { withTimezone: true }),
@@ -147,3 +148,90 @@ export const voucherRedemptions = pgTable("voucher_redemptions", {
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("voucher_redemptions_user_code_uq").on(t.userId, t.code)]);
+
+/** A connected third-party account (Canva today), one row per user × provider. */
+export const integrations = pgTable(
+  "integrations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: ["canva"] }).notNull(),
+    accessToken: text("access_token").notNull(),
+    refreshToken: text("refresh_token"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    scopes: text("scopes").array().notNull().default([]),
+    externalUserId: text("external_user_id"),
+    externalDisplayName: text("external_display_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("integrations_user_provider_uq").on(t.userId, t.provider)],
+);
+
+/** In-flight OAuth handshakes: the state we sent out and the PKCE verifier it needs on return. */
+export const oauthStates = pgTable("oauth_states", {
+  state: text("state").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  provider: text("provider", { enum: ["canva"] }).notNull(),
+  codeVerifier: text("code_verifier").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+/** One Ask JobsMator conversation. `tool` is set when the thread came from the Tools tab. */
+export const aiThreads = pgTable(
+  "ai_threads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default("New conversation"),
+    tool: text("tool"),
+    /** Rolling summary of turns that no longer fit the context window. */
+    summary: text("summary"),
+    /** `created_at` of the last message the summary covers; later ones are sent verbatim. */
+    summaryThrough: timestamp("summary_through", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [index("ai_threads_user_updated_idx").on(t.userId, t.updatedAt)],
+);
+
+export const aiMessages = pgTable(
+  "ai_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    threadId: uuid("thread_id").notNull().references(() => aiThreads.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["user", "assistant"] }).notNull(),
+    content: text("content").notNull(),
+    /** Images the user attached to this message. */
+    attachmentIds: uuid("attachment_ids").array().notNull().default([]),
+    model: text("model"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ai_messages_thread_created_idx").on(t.threadId, t.createdAt), index("ai_messages_user_created_idx").on(t.userId, t.createdAt)],
+);
+
+/**
+ * An image the user uploaded for the assistant. The model describes it once
+ * on upload; that `analysis` is what later turns see, so the picture is only
+ * ever sent to the model on the turn it was attached to.
+ */
+export const aiAttachments = pgTable(
+  "ai_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    storagePath: text("storage_path").notNull(),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    /** What kind of thing the picture is: job_posting, resume, screenshot, other. */
+    kind: text("kind").notNull().default("other"),
+    analysis: text("analysis"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ai_attachments_user_idx").on(t.userId, t.createdAt)],
+);

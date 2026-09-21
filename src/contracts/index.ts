@@ -186,6 +186,7 @@ export const Job = z.object({
   responded: z.boolean(),
   /** You have (or had) an interview. */
   interview: z.boolean(),
+  coverLetter: z.string().nullable().optional(),
 });
 export type Job = z.infer<typeof Job>;
 
@@ -197,6 +198,63 @@ export const JobsPage = z.object({
 });
 
 // ---------- errors ----------
+// ---------- Ask JobsMator ----------
+export const AiRole = z.enum(["user", "assistant"]);
+export type AiRole = z.infer<typeof AiRole>;
+
+export const AiAttachment = z.object({
+  id: z.string().uuid(),
+  filename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int(),
+  /** What the model saw: job_posting, resume, screenshot or other. */
+  kind: z.string(),
+  /** The model's description of the image; what later turns refer to. */
+  analysis: z.string().nullable(),
+  /** Short-lived URL for showing the picture in the thread. */
+  url: z.string().url(),
+  createdAt: z.string(),
+});
+export type AiAttachment = z.infer<typeof AiAttachment>;
+
+export const AiMessage = z.object({
+  id: z.string().uuid(),
+  threadId: z.string().uuid(),
+  role: AiRole,
+  content: z.string(),
+  attachments: z.array(AiAttachment).default([]),
+  createdAt: z.string(),
+});
+export type AiMessage = z.infer<typeof AiMessage>;
+
+export const AiThread = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  /** Set when the thread was started from the Tools tab. */
+  tool: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type AiThread = z.infer<typeof AiThread>;
+
+export const SendAiMessageBody = z.object({
+  /** Omit to start a new conversation. */
+  threadId: z.string().uuid().optional(),
+  text: z.string().max(8000).default(""),
+  attachmentIds: z.array(z.string().uuid()).max(4).default([]),
+  /** Start a Tools-tab conversation with this tool's instructions. Only on the first message. */
+  tool: z.string().optional(),
+});
+export type SendAiMessageBody = z.infer<typeof SendAiMessageBody>;
+
+export const SendAiMessageResponse = z.object({
+  thread: AiThread,
+  message: AiMessage,
+  reply: AiMessage,
+  usage: z.object({ used: z.number().int(), limit: z.number().int() }),
+});
+export type SendAiMessageResponse = z.infer<typeof SendAiMessageResponse>;
+
 export const ApiErrorBody = z.object({
   error: z.string(),
   message: z.string(),

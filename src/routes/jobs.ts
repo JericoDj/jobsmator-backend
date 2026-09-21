@@ -18,7 +18,7 @@ const toJob = (j: JobRow): Job => ({
   id: j.id, runId: (j as any).runId ?? (j as any).run_id, rank: j.rank, score: j.score, tier: j.tier, title: j.title, company: j.company, location: j.location,
   remote: j.remote, salary: j.salary, postedAt: j.postedAt?.toISOString() ?? null, url: j.url, site: j.site,
   matchedInterest: j.matchedInterest, industry: (j as any).industry ?? "", expired: !!(j as any).expiredAt, why: j.why, redFlags: j.redFlags, saved: j.saved, hidden: j.hidden, applied: j.applied,
-  responded: j.responded, interview: j.interview,
+  responded: j.responded, interview: j.interview, coverLetter: (j as any).coverLetter ?? null,
 });
 
 const flag = (userId: string, action: string) =>
@@ -266,6 +266,9 @@ export const jobRoutes = new Hono<AppEnv>()
     async (c) => {
       const user = c.get("user");
       const id = c.req.valid("param").id;
+      // We read resumeId manually to keep the route optional without breaking existing clients.
+      const body = await c.req.json().catch(() => ({}));
+      const resumeId = body.resumeId;
       
       if (!env.OPENROUTER_API_KEY) throw new ApiError("engine_unavailable", "OpenRouter API key is not configured.");
 
@@ -289,9 +292,12 @@ export const jobRoutes = new Hono<AppEnv>()
       const [sourceJob] = await db.select().from(jobs).where(eq(jobs.id, id));
       if (!sourceJob) throw new ApiError("not_found", "That job is no longer here.");
 
-      // Fetch user's latest resume profile
-      const [resume] = await db.select().from(resumes).where(eq(resumes.userId, user.id)).orderBy(desc(resumes.createdAt)).limit(1);
-      if (!resume || !resume.profile) throw new ApiError("invalid_request", "You need to upload a resume first.");
+      // Fetch user's requested or latest resume profile
+      const query = resumeId 
+        ? db.select().from(resumes).where(and(eq(resumes.userId, user.id), eq(resumes.id, resumeId))).limit(1)
+        : db.select().from(resumes).where(eq(resumes.userId, user.id)).orderBy(desc(resumes.createdAt)).limit(1);
+      const [resume] = await query;
+      if (!resume || !resume.profile) throw new ApiError("invalid_request", "Please upload or select a valid resume first.");
       
       const interests = (user.defaults as any).interests || [];
 
@@ -386,6 +392,86 @@ Summary/Why: ${sourceJob.why}
         .returning();
 
       return c.json(toJob(newJob as any));
+    }
+  )
+  .post(
+    "/:id/cover-letter/generate",
+    route({
+      tag: "Jobs",
+      summary: "Generate a cover letter for the job",
+      ok: { schema: z.object({ coverLetter: z.string() }) },
+    }),
+    validator("param", IdParam),
+    async (c) => {
+      const user = c.get("user");
+      const id = c.req.valid("param").id;
+      const body = await c.req.json().catch(() => ({}));
+      const resumeId = body.resumeId;
+      if (!env.OPENROUTER_API_KEY) throw new ApiError("engine_unavailable", "OpenRouter API key is not configured.");
+      
+      const [sourceJob] = await db.select().from(jobs).where(eq(jobs.id, id));
+      if (!sourceJob) throw new ApiError("not_found", "That job is no longer here.");
+      if (sourceJob.userId !== user.id) throw new ApiError("invalid_request", "You can only write a cover letter for your own jobs.");
+
+      const query = resumeId 
+        ? db.select().from(resumes).where(and(eq(resumes.userId, user.id), eq(resumes.id, resumeId))).limit(1)
+        : db.select().from(resumes).where(eq(resumes.userId, user.id)).orderBy(desc(resumes.createdAt)).limit(1);
+      const [resume] = await query;
+      if (!resume || !resume.profile) throw new ApiError("invalid_request", "Please upload or select a valid resume first.");
+
+      const prompt = `Write a professional cover letter for the following job posting, based on my resume profile. Keep it concise, engaging, and highlight relevant experience.
+      
+USER PROFILE:
+${JSON.stringify(resume.profile, null, 2)}
+
+JOB POSTING:
+Title: ${sourceJob.title}
+Company: ${sourceJob.company}
+Description/Why it fits: ${sourceJob.why}
+`;
+
+      let coverLetter = "";
+      try {
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${env.OPENROUTER_API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "openai/gpt-4o-mini",
+            messages: [{ role: "user", content: prompt }]
+          })
+        });
+        if (!response.ok) throw new Error("OpenRouter API error");
+        const data = (await response.json()) as any;
+        coverLetter = data.choices[0].message.content;
+      } catch (err) {
+        throw new ApiError("engine_unavailable", "Failed to generate cover letter.");
+      }
+
+      await db.update(jobs).set({ coverLetter }).where(eq(jobs.id, sourceJob.id));
+      return c.json({ coverLetter });
+    }
+  )
+  .patch(
+    "/:id/cover-letter",
+    route({
+      tag: "Jobs",
+      summary: "Update the cover letter for the job",
+      ok: { schema: z.object({ ok: z.boolean() }) },
+    }),
+    validator("param", IdParam),
+    validator("json", z.object({ coverLetter: z.string() })),
+    async (c) => {
+      const user = c.get("user");
+      const id = c.req.valid("param").id;
+      const { coverLetter } = c.req.valid("json");
+      const [sourceJob] = await db.select().from(jobs).where(eq(jobs.id, id));
+      if (!sourceJob) throw new ApiError("not_found", "That job is no longer here.");
+      if (sourceJob.userId !== user.id) throw new ApiError("invalid_request", "You can only update a cover letter for your own jobs.");
+      await db.update(jobs).set({ coverLetter }).where(eq(jobs.id, sourceJob.id));
+      return c.json({ ok: true });
     }
   )
   .post("/:id/save", toggleRoute("saved", "Save / unsave a job"), validator("param", IdParam), toggle("saved"))
