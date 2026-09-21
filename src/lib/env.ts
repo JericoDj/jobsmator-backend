@@ -28,6 +28,12 @@ const EnvSchema = z.object({
   CANVA_SCOPES: z.string().default("profile:read design:meta:read design:content:write asset:write"),
   /** Where the browser lands after the callback: the app's deep link. */
   CANVA_APP_RETURN_URL: z.string().default("jobsmator://integrations/canva"),
+
+  // RevenueCat (mobile IAP subscriptions). Both optional — features are off until set.
+  /** Shared secret we require on the RevenueCat webhook's `Authorization` header (`Bearer <secret>` or bare). */
+  REVENUECAT_WEBHOOK_SECRET: z.string().min(1).optional(),
+  /** RevenueCat REST API secret key, used by `POST /v1/billing/sync` to read a subscriber's entitlements. */
+  REVENUECAT_SECRET_KEY: z.string().min(1).optional(),
 });
 
 export const env = EnvSchema.parse(process.env);

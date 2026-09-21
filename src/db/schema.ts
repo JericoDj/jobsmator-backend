@@ -9,6 +9,9 @@ export const users = pgTable("users", {
   sheetId: text("sheet_id"),
   plan: text("plan", { enum: ["free", "pro"] }).notNull().default("free"),
   renewsAt: timestamp("renews_at", { withTimezone: true }),
+  /** Who last set `plan`/`renewsAt`: a voucher redemption, RevenueCat (webhook or /billing/sync), or manual admin action. */
+  planSource: text("plan_source", { enum: ["none", "voucher", "revenuecat", "manual"] }).notNull().default("none"),
+  planUpdatedAt: timestamp("plan_updated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -22,6 +25,11 @@ export const resumes = pgTable(
     filename: text("filename").notNull(),
     sizeBytes: integer("size_bytes"),
     profile: jsonb("profile"),
+    // AI-generated résumé analysis (summary, strengths, tags used for job matching, …).
+    // Null until `analyzeResume` finishes; `analysisError` is set instead on failure.
+    analysis: jsonb("analysis"),
+    analyzedAt: timestamp("analyzed_at", { withTimezone: true }),
+    analysisError: text("analysis_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },

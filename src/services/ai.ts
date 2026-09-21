@@ -3,6 +3,7 @@ import { db } from "@/db/client";
 import { aiAttachments, aiMessages, aiThreads, jobActions, jobs, resumes } from "@/db/schema";
 import { env } from "@/lib/env";
 import { ApiError } from "@/lib/errors";
+import type { ResumeAnalysis } from "@/contracts";
 import { logger } from "@/lib/logger";
 import { bucket } from "@/services/auth";
 import { chatCompletion, parseJsonReply, type LlmImagePart, type LlmMessage, type LlmTextPart } from "@/services/llm";
@@ -80,7 +81,7 @@ export const TOOL_IDS = Object.keys(TOOL_PROMPTS);
 /** Everything we know about the user, rendered as a compact block for the system prompt. */
 async function profileBlock(user: AppUser): Promise<string> {
   const [resume] = await db
-    .select({ filename: resumes.filename, profile: resumes.profile, createdAt: resumes.createdAt })
+    .select({ filename: resumes.filename, profile: resumes.profile, analysis: resumes.analysis, createdAt: resumes.createdAt })
     .from(resumes)
     .where(and(eq(resumes.userId, user.id), isNull(resumes.deletedAt)))
     .orderBy(desc(resumes.createdAt))
@@ -108,7 +109,16 @@ async function profileBlock(user: AppUser): Promise<string> {
   if (interests.length) lines.push(`Job interests: ${interests.join(", ")}.`);
   if (defaults.location) lines.push(`Location: ${String(defaults.location)}${defaults.remoteOnly ? " (remote only)" : ""}.`);
 
-  if (resume?.profile) {
+  const analysis = resume?.analysis as ResumeAnalysis | null | undefined;
+  if (resume && analysis) {
+    // Our own analysis is the most compact, useful view of the resume; the engine's
+    // raw profile only fills in when it hasn't run yet.
+    lines.push(
+      `Resume "${resume.filename}" (uploaded ${resume.createdAt.toISOString().slice(0, 10)}): ${analysis.headline} (${analysis.seniority}). ${analysis.summary}\n` +
+        `Skills: ${analysis.skills.join(", ")}.\nFits roles: ${analysis.roles.join(", ")}.\n` +
+        `Strengths: ${analysis.strengths.join("; ")}.\nWeak spots to fix: ${analysis.fixes.join("; ")}.`,
+    );
+  } else if (resume?.profile) {
     // The engine's profile is already a compact extraction of the resume; cap it so a
     // huge one can't crowd out the conversation.
     const json = JSON.stringify(resume.profile);

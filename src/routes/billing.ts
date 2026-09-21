@@ -8,6 +8,7 @@ import { route } from "@/lib/openapi";
 import { ApiError } from "@/lib/errors";
 import { toMe } from "@/routes/me";
 import { env } from "@/lib/env";
+import { fetchProEntitlement } from "@/services/revenuecat";
 import type { AppEnv } from "@/middleware";
 
 export const billingRoutes = new Hono<AppEnv>()
@@ -16,19 +17,52 @@ export const billingRoutes = new Hono<AppEnv>()
     route({
       tag: "Billing",
       summary: "Mock upgrade to Pro",
+      description: "Dev/testing only — self-grants a plan without paying. Disabled in production.",
       ok: { schema: z.any() },
+      errors: { 403: "Disabled in production" },
     }),
     validator("json", z.object({ plan: z.enum(["free", "pro"]) })),
     async (c) => {
+      if (env.NODE_ENV === "production") throw new ApiError("forbidden", "Mock checkout is disabled in production.");
       const user = c.get("user");
       const { plan } = c.req.valid("json");
-      
+
       const [updated] = await db
         .update(users)
-        .set({ plan, renewsAt: null })
+        .set({ plan, renewsAt: null, planSource: "manual", planUpdatedAt: new Date() })
         .where(eq(users.id, user.id))
         .returning();
-      
+
+      return c.json(await toMe(updated!));
+    }
+  )
+  .post(
+    "/sync",
+    route({
+      tag: "Billing",
+      summary: "Sync plan from RevenueCat",
+      description: "Call after a purchase/restore in the app. Reads the caller's `pro` entitlement from RevenueCat and updates their plan.",
+      ok: { schema: z.any() },
+      errors: { 503: "RevenueCat isn't configured" },
+    }),
+    async (c) => {
+      const user = c.get("user");
+      const entitlement = await fetchProEntitlement(user.firebaseUid);
+
+      // No store entitlement only downgrades a plan that RevenueCat granted; a voucher or manual Pro stays.
+      const keep = !entitlement.active && user.plan === "pro" && user.planSource !== "revenuecat";
+      const [updated] = keep
+        ? [user]
+        : await db
+            .update(users)
+            .set(
+              entitlement.active
+                ? { plan: "pro", renewsAt: entitlement.expiresAt, planSource: "revenuecat", planUpdatedAt: new Date() }
+                : { plan: "free", renewsAt: null, planSource: "revenuecat", planUpdatedAt: new Date() },
+            )
+            .where(eq(users.id, user.id))
+            .returning();
+
       return c.json(await toMe(updated!));
     }
   )
@@ -78,7 +112,7 @@ export const billingRoutes = new Hono<AppEnv>()
           
         const [updatedUser] = await tx
           .update(users)
-          .set({ plan: "pro", renewsAt })
+          .set({ plan: "pro", renewsAt, planSource: "voucher", planUpdatedAt: new Date() })
           .where(eq(users.id, user.id))
           .returning();
           

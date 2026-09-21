@@ -15,6 +15,7 @@ import { runRoutes } from "@/routes/runs";
 import { jobRoutes, runJobRoutes } from "@/routes/jobs";
 import { automationRoutes } from "@/routes/automations";
 import { billingRoutes } from "@/routes/billing";
+import { webhookRoutes } from "@/routes/webhooks";
 import { aiRoutes } from "@/routes/ai";
 import { startMaintenance } from "@/jobs/maintenance";
 import { startAutomations } from "@/jobs/automations";
@@ -29,6 +30,7 @@ app.notFound((c) => c.json({ error: "not_found", message: "No such endpoint." },
 
 app.route("/health", health);
 app.route("/v1/auth", authRoutes);
+app.route("/webhooks", webhookRoutes);
 
 const v1 = new Hono<AppEnv>().use("*", requireAuth);
 v1.route("/me", me);
@@ -62,6 +64,8 @@ app.get(
         { name: "Runs", description: "Asynchronous search runs against the n8n engine" },
         { name: "Jobs", description: "Ranked results and user actions on them" },
         { name: "Automations", description: "Scheduled search runs" },
+        { name: "Billing", description: "Plan, vouchers and RevenueCat sync" },
+        { name: "Webhooks", description: "Unauthenticated callbacks from third parties (RevenueCat)" },
         { name: "Ask JobsMator", description: "The in-app assistant: saved conversations, image attachments, tools" },
       ],
       components: { securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "Firebase ID token" } } },

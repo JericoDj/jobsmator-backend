@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, desc, eq, gt, inArray, sql as dsql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql as dsql } from "drizzle-orm";
 import { validator } from "hono-openapi";
 import { z } from "zod";
 import { db } from "@/db/client";
@@ -12,6 +12,7 @@ import { IdParam, route } from "@/lib/openapi";
 import { runEngine } from "@/services/engine";
 import { classifyIndustry } from "@/lib/industry";
 import { signedResumeUrl } from "@/services/storage";
+import { planLimits, searchesUsed } from "@/lib/plan";
 import type { AppEnv, AppUser } from "@/middleware";
 
 export const toRun = (r: typeof runs.$inferSelect): Run => ({
@@ -115,18 +116,10 @@ export const runRoutes = new Hono<AppEnv>()
         .where(and(eq(runs.userId, user.id), inArray(runs.status, ["queued", "running"])));
       if ((activeRow?.active ?? 0) > 0) throw new ApiError("run_in_progress", "A search is already running — hang on.");
 
-      const isPro = user.plan === "pro";
-      const searchLimit = isPro ? 5 : 1;
-      const periodLabel = isPro ? "this hour" : "today";
-      const periodMs = isPro ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
-      
-      const since = new Date(Date.now() - periodMs);
-      const [recentRow] = await db
-        .select({ recent: dsql<number>`count(*)::int` })
-        .from(runs)
-        .where(and(eq(runs.userId, user.id), gt(runs.startedAt, since)));
-        
-      if ((recentRow?.recent ?? 0) >= searchLimit) {
+      const limits = planLimits(user);
+      const recent = await searchesUsed(user.id, limits.since);
+      if (recent >= limits.searchLimit) {
+        throw new ApiError("too_many_runs", `You've used ${limits.searchLimit} searches ${limits.periodLabel}. Upgrade or try again later.`);
       }
 
       const { resumeId, ...request } = body;

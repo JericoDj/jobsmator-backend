@@ -10,13 +10,18 @@ import { logger } from "@/lib/logger";
 
 export type LlmTextPart = { type: "text"; text: string };
 export type LlmImagePart = { type: "image_url"; image_url: { url: string } };
+/** A file (e.g. a PDF) as a data: URL; needs the `file-parser` plugin (see `ChatOptions.plugins`). */
+export type LlmFilePart = { type: "file"; file: { filename: string; file_data: string } };
 export type LlmMessage =
   | { role: "system"; content: string }
-  | { role: "user"; content: string | (LlmTextPart | LlmImagePart)[] }
+  | { role: "user"; content: string | (LlmTextPart | LlmImagePart | LlmFilePart)[] }
   | { role: "assistant"; content: string };
 
 export type LlmUsage = { inputTokens: number; outputTokens: number };
 export type LlmResult = { text: string; model: string; usage: LlmUsage };
+
+/** OpenRouter plugin config, e.g. `file-parser` to read PDF file parts. */
+export type LlmPlugin = { id: string; pdf?: { engine: string } };
 
 type ChatOptions = {
   model?: string;
@@ -25,6 +30,8 @@ type ChatOptions = {
   /** Ask for a JSON object back; the caller still parses it. */
   json?: boolean;
   timeoutMs?: number;
+  /** OpenRouter plugins, e.g. `[{ id: "file-parser", pdf: { engine: "pdf-text" } }]` to read a PDF file part. */
+  plugins?: LlmPlugin[];
 };
 
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
@@ -47,6 +54,7 @@ export async function chatCompletion(messages: LlmMessage[], opts: ChatOptions =
       max_tokens: opts.maxTokens ?? 1500,
       temperature: opts.temperature ?? 0.4,
       ...(opts.json ? { response_format: { type: "json_object" } } : {}),
+      ...(opts.plugins ? { plugins: opts.plugins } : {}),
     }),
     signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
   }).catch((err) => {

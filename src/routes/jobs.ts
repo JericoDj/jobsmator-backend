@@ -11,10 +11,11 @@ import type { AppEnv, AppUser } from "@/middleware";
 import { env } from "@/lib/env";
 import { classifyIndustry } from "@/lib/industry";
 import { markExpired } from "@/lib/liveness";
+import { planLimits, searchesUsed } from "@/lib/plan";
 
 type JobRow = typeof jobs.$inferSelect & { saved: boolean; hidden: boolean; applied: boolean; responded: boolean; interview: boolean };
 
-const toJob = (j: JobRow): Job => ({
+export const toJob = (j: JobRow): Job => ({
   id: j.id, runId: (j as any).runId ?? (j as any).run_id, rank: j.rank, score: j.score, tier: j.tier, title: j.title, company: j.company, location: j.location,
   remote: j.remote, salary: j.salary, postedAt: j.postedAt?.toISOString() ?? null, url: j.url, site: j.site,
   matchedInterest: j.matchedInterest, industry: (j as any).industry ?? "", expired: !!(j as any).expiredAt, why: j.why, redFlags: j.redFlags, saved: j.saved, hidden: j.hidden, applied: j.applied,
@@ -24,7 +25,7 @@ const toJob = (j: JobRow): Job => ({
 const flag = (userId: string, action: string) =>
   dsql<boolean>`exists(select 1 from ${jobActions} a where a.job_id = ${jobs.id} and a.user_id = ${userId} and a.action = ${action})`;
 
-const withActions = (userId: string) => ({
+export const withActions = (userId: string) => ({
   ...getTableColumns(jobs),
   saved: flag(userId, "saved"),
   hidden: flag(userId, "hidden"),
@@ -273,19 +274,10 @@ export const jobRoutes = new Hono<AppEnv>()
       if (!env.OPENROUTER_API_KEY) throw new ApiError("engine_unavailable", "OpenRouter API key is not configured.");
 
       // Check run limits
-      const isPro = user.plan === "pro";
-      const searchLimit = isPro ? 5 : 1;
-      const periodLabel = isPro ? "this hour" : "today";
-      const periodMs = isPro ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
-      const since = new Date(Date.now() - periodMs);
-
-      const [recentRow] = await db
-        .select({ recent: dsql<number>`count(*)::int` })
-        .from(runs)
-        .where(and(eq(runs.userId, user.id), gt(runs.startedAt, since)));
-        
-      if ((recentRow?.recent ?? 0) >= searchLimit) {
-        throw new ApiError("too_many_runs", `You've used ${searchLimit} searches ${periodLabel}. Upgrade or try again later.`);
+      const limits = planLimits(user);
+      const recent = await searchesUsed(user.id, limits.since);
+      if (recent >= limits.searchLimit) {
+        throw new ApiError("too_many_runs", `You've used ${limits.searchLimit} searches ${limits.periodLabel}. Upgrade or try again later.`);
       }
 
       // Find the job being requested

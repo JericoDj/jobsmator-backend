@@ -39,7 +39,7 @@ describe("contracts", () => {
       displayName: "Jerico De Jesus",
       defaults: {},
       sheetId: null,
-      subscription: { plan: "free", searchesUsed: 0, renewsAt: null },
+      subscription: { plan: "free", searchesUsed: 0, searchLimit: 1, period: "day", renewsAt: null },
       profile: {},
       automations: [],
       settings: {},

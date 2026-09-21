@@ -31,10 +31,22 @@ export type UserDefaults = z.infer<typeof UserDefaults>;
 export const SubscriptionPlan = z.enum(["free", "pro"]);
 export type SubscriptionPlan = z.infer<typeof SubscriptionPlan>;
 
+export const SubscriptionSource = z.enum(["none", "voucher", "revenuecat", "manual"]);
+export type SubscriptionSource = z.infer<typeof SubscriptionSource>;
+
+export const SubscriptionPeriod = z.enum(["day", "hour"]);
+export type SubscriptionPeriod = z.infer<typeof SubscriptionPeriod>;
+
 export const SubscriptionInfo = z.object({
   plan: SubscriptionPlan.default("free"),
   searchesUsed: z.number().int().min(0).default(0),
+  /** Backend is the source of truth: free gets 1 search a day, pro gets 5 an hour. */
+  searchLimit: z.number().int().min(0),
+  period: SubscriptionPeriod,
   renewsAt: z.string().nullable().default(null),
+  source: SubscriptionSource.default("none"),
+  /** True when `plan` came from RevenueCat and hasn't expired. */
+  entitlementActive: z.boolean().default(false),
 });
 export type SubscriptionInfo = z.infer<typeof SubscriptionInfo>;
 
@@ -114,14 +126,41 @@ export const CreateResumeBody = z.object({
   filename: z.string().min(1).max(200),
   sizeBytes: z.number().int().positive().max(10 * 1024 * 1024).optional(),
 }).refine(data => data.storagePath || data.url, { message: "Must provide either storagePath or url" });
-export const Resume = z.object({
+export const ResumeAnalysis = z.object({
+  summary: z.string(), // 2 sentences on who this person is
+  headline: z.string(), // e.g. "Mid-level Flutter developer, 3 yrs"
+  seniority: z.enum(["entry", "junior", "mid", "senior", "lead"]),
+  strengths: z.array(z.string()).max(5),
+  fixes: z.array(z.string()).max(5), // concrete, actionable
+  skills: z.array(z.string()).max(25), // normalised, lowercase-ish ("flutter", "firebase")
+  roles: z.array(z.string()).max(8), // job titles this resume fits ("Flutter Developer")
+  tags: z.array(z.string()).max(20), // union used for matching: roles + top skills + industries, lowercase, deduped
+  industries: z.array(z.string()).max(5),
+});
+export type ResumeAnalysis = z.infer<typeof ResumeAnalysis>;
+
+export const ResumeAnalysisStatus = z.enum(["pending", "done", "failed"]);
+export type ResumeAnalysisStatus = z.infer<typeof ResumeAnalysisStatus>;
+
+const ResumeBase = z.object({
   id: z.string().uuid(),
   runId: z.string().uuid().optional(),
   filename: z.string(),
   sizeBytes: z.number().nullable(),
   createdAt: z.string(),
 });
+export const Resume = ResumeBase.extend({
+  analysis: ResumeAnalysis.nullable().default(null),
+  analyzedAt: z.string().nullable().default(null),
+  analysisStatus: ResumeAnalysisStatus,
+});
 export type Resume = z.infer<typeof Resume>;
+
+export const ResumeMatches = z.object({
+  items: z.array(z.lazy(() => Job)),
+  tags: z.array(z.string()),
+});
+export type ResumeMatches = z.infer<typeof ResumeMatches>;
 
 // ---------- runs ----------
 export const CreateRunBody = z.object({

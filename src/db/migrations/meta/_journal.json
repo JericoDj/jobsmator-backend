@@ -57,6 +57,13 @@
       "when": 1789968554694,
       "tag": "0007_ai_chat",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789970824880,
+      "tag": "0008_resume_analysis",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNotNull, lt } from "drizzle-orm";
 import { db } from "@/db/client";
-import { jobs, runs } from "@/db/schema";
+import { jobs, runs, users } from "@/db/schema";
 import { classifyIndustry } from "@/lib/industry";
 import { logger } from "@/lib/logger";
 
@@ -33,14 +33,30 @@ export async function backfillIndustry() {
   if (rows.length) logger.info({ count: rows.length }, "labelled job industries");
 }
 
+/**
+ * Downgrades users whose voucher/RevenueCat plan has lapsed. The webhook and
+ * `/billing/sync` normally do this promptly, but a voucher has no webhook and
+ * a missed/failed RevenueCat event shouldn't leave someone Pro forever.
+ */
+export async function downgradeExpiredPlans() {
+  const rows = await db
+    .update(users)
+    .set({ plan: "free", planUpdatedAt: new Date() })
+    .where(and(eq(users.plan, "pro"), inArray(users.planSource, ["voucher", "revenuecat"]), isNotNull(users.renewsAt), lt(users.renewsAt, new Date())))
+    .returning({ id: users.id });
+  if (rows.length) logger.info({ count: rows.length }, "downgraded expired plans");
+}
+
 /** In-process scheduler — enough for one API instance. Move to Railway cron if we scale out. */
 export function startMaintenance() {
   const safe = (name: string, fn: () => Promise<void>) => () => fn().catch((err) => logger.warn({ err }, `${name} failed`));
   safe("sweepStaleRuns", sweepStaleRuns)();
   safe("purgeRawResponses", purgeRawResponses)();
   safe("backfillIndustry", backfillIndustry)();
+  safe("downgradeExpiredPlans", downgradeExpiredPlans)();
   setInterval(safe("sweepStaleRuns", sweepStaleRuns), 60 * 1000);
   setInterval(safe("purgeRawResponses", purgeRawResponses), 6 * 60 * 60 * 1000);
+  setInterval(safe("downgradeExpiredPlans", downgradeExpiredPlans), 24 * 60 * 60 * 1000);
 }
 
 // keep drizzle's sql import referenced for future raw queries
