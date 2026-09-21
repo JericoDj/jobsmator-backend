@@ -40,7 +40,7 @@ export type SubscriptionPeriod = z.infer<typeof SubscriptionPeriod>;
 export const SubscriptionInfo = z.object({
   plan: SubscriptionPlan.default("free"),
   searchesUsed: z.number().int().min(0).default(0),
-  /** Backend is the source of truth: free gets 1 search a day, pro gets 5 an hour. */
+  /** Backend is the source of truth: free gets 1 search a day, pro gets 5 a day. */
   searchLimit: z.number().int().min(0),
   period: SubscriptionPeriod,
   renewsAt: z.string().nullable().default(null),

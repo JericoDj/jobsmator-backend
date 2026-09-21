@@ -4,7 +4,7 @@ import { runs, users } from "@/db/schema";
 
 export type PlanLimits = {
   isPro: boolean;
-  /** Searches allowed per `period`: free 1/day, pro 5/hour. */
+  /** Searches allowed per `period`: free 1/day, pro 5/day. */
   searchLimit: number;
   period: "day" | "hour";
   /** Human label for error messages, e.g. "You've used 1 search today." */
@@ -18,9 +18,10 @@ export type PlanLimits = {
 export function planLimits(user: typeof users.$inferSelect): PlanLimits {
   const isPro = user.plan === "pro";
   const searchLimit = isPro ? 5 : 1;
-  const period: "day" | "hour" = isPro ? "hour" : "day";
-  const periodLabel = isPro ? "this hour" : "today";
-  const periodMs = isPro ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+  // Both plans reset daily; Pro's edge is breadth (all sites, tools) plus re-runs.
+  const period: "day" | "hour" = "day";
+  const periodLabel = "today";
+  const periodMs = 24 * 60 * 60 * 1000;
   return { isPro, searchLimit, period, periodLabel, periodMs, since: new Date(Date.now() - periodMs) };
 }
 
